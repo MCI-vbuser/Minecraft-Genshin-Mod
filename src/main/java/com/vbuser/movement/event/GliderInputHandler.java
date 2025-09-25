@@ -12,7 +12,7 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 import static com.vbuser.movement.math.GliderConst.*;
 
-public class ClientInputHandler {
+public class GliderInputHandler {
     private boolean lastJump = false;
     private boolean clientOpen = false;
 
@@ -22,6 +22,7 @@ public class ClientInputHandler {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.world == null || mc.player == null) return;
         EntityPlayerSP p = mc.player;
+        if (p.hasNoGravity()) return;
         if (p.capabilities.isFlying || p.isSpectator()) {
             if (clientOpen) {
                 clientOpen = false;
@@ -67,7 +68,7 @@ public class ClientInputHandler {
             double sin = Math.sin(yawRad);
             double cos = Math.cos(yawRad);
             double x = (-forward * sin) + (strafe * cos);
-            double z = ( forward * cos) + (strafe * sin);
+            double z = (forward * cos) + (strafe * sin);
             double len = Math.sqrt(x * x + z * z);
             if (len > 1e-6) {
                 x /= len;

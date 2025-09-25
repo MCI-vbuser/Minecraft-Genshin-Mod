@@ -1,7 +1,7 @@
 package com.vbuser.movement.capability;
 
 import com.vbuser.genshin.data.save.RuleManager;
-import com.vbuser.movement.event.ClientInputHandler;
+import com.vbuser.movement.event.GliderInputHandler;
 import com.vbuser.movement.event.GliderEvents;
 import com.vbuser.movement.network.GliderNetwork;
 import net.minecraft.block.material.Material;
@@ -30,7 +30,7 @@ public final class GliderUtils {
         GliderNetwork.init();
         MinecraftForge.EVENT_BUS.register(new GliderEvents());
         if (e.getSide().isClient()) {
-            MinecraftForge.EVENT_BUS.register(new ClientInputHandler());
+            MinecraftForge.EVENT_BUS.register(new GliderInputHandler());
         }
     }
     private GliderUtils() {}
