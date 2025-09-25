@@ -5,6 +5,9 @@ import com.vbuser.genshin.command.CommandSetBiome;
 import com.vbuser.genshin.command.CommandTpDim;
 import com.vbuser.genshin.data.save.CommandRule;
 import com.vbuser.genshin.data.save.RuleManager;
+import com.vbuser.genshin.debug.ClientDebugHandler;
+import com.vbuser.genshin.debug.CommandCCB;
+import com.vbuser.genshin.debug.NetworkHandler;
 import com.vbuser.genshin.event.BiomeDisplayHandler;
 import com.vbuser.genshin.init.ModItems;
 import com.vbuser.genshin.init.key.KeyboardManager;
@@ -79,6 +82,7 @@ public class Main {
         //Event Listener:
         MinecraftForge.EVENT_BUS.register(this);
         MinecraftForge.EVENT_BUS.register(new BiomeDisplayHandler());
+        MinecraftForge.EVENT_BUS.register(new ClientDebugHandler());
         //Bullshit:
         ModItems.ITEMS.stream()
                 .filter(item -> item instanceof FoodBase)
@@ -89,6 +93,7 @@ public class Main {
     public void onPreInit(FMLPreInitializationEvent event) {
         RuleManager.preInit(event);
         RuleManager.registerDefaultRule();
+        NetworkHandler.registerMessages();
     }
 
     @Mod.EventHandler
@@ -97,6 +102,7 @@ public class Main {
         event.registerServerCommand(new CommandTpDim());
         event.registerServerCommand(new CommandCloudFill());
         event.registerServerCommand(new CommandRule());
+        event.registerServerCommand(new CommandCCB());
     }
 
     @SubscribeEvent

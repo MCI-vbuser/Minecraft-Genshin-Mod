@@ -12,7 +12,7 @@ public class EntityInit {
     }
 
     public static void registerEntity(String name, Class<? extends Entity> entity, int id, int range, int color1, int color2) {
-        EntityRegistry.registerModEntity(new ResourceLocation("movement" + ":" + name),
+        EntityRegistry.registerModEntity(new ResourceLocation("movement" , name),
                 entity, name, id, Movement.instance, range, 1, true
                 , color1, color2);
     }
