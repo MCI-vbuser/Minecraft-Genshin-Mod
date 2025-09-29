@@ -1,8 +1,6 @@
 package com.vbuser.movement.entity;
 
-import com.vbuser.movement.data.InputData;
 import com.vbuser.movement.event.FakeInput;
-import net.minecraft.client.Minecraft;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.math.Vec2f;
@@ -19,49 +17,27 @@ import java.util.UUID;
 
 public class FakePlayer extends EntityLiving implements IAnimatable, IAnimationTickable {
 
-    private UUID targetPlayerUUID;
+    private UUID pid;
     private EntityPlayer p;
-    private int waitTicks = 0;
-    private static final int MAX_WAIT_TICKS = 100;
+    private int count = 0;
 
     private float yaw_temp;
 
     @SuppressWarnings("unused")
     public FakePlayer(World worldIn) {
         super(worldIn);
-        if (world.isRemote) {
-            targetPlayerUUID = Minecraft.getMinecraft().player.getUniqueID();
-        } else {
-            setDead();
-        }
+        setSize(0.6f, 1.8f);
     }
 
     public FakePlayer(World world, UUID uuid) {
         super(world);
-        this.targetPlayerUUID = uuid;
+        this.pid = uuid;
+        if (world.getPlayerEntityByUUID(pid) != null) p = world.getPlayerEntityByUUID(pid);
         setSize(0.6f, 1.8f);
-
-        if (!world.isRemote) {
-            this.setNoGravity(true);
-            this.setSilent(true);
-        }
-
-        setPosition(0, 0, 0);
-    }
-
-    public UUID getTargetPlayerUUID() {
-        return targetPlayerUUID;
     }
 
     public void setRenderer() {
-        if (targetPlayerUUID == null || world == null) return;
-        if (p == null) {
-            return;
-        }
-
-        Vec2f input = world.isRemote ?
-                new Vec2f(FakeInput.get(p).moveForward, FakeInput.get(p).moveStrafing) :
-                new Vec2f(InputData.get(p).moveForward, InputData.get(p).moveStrafing);
+        Vec2f input = new Vec2f(FakeInput.get(p).moveForward, FakeInput.get(p).moveStrafing);
         float targetYaw;
 
         if (input.x == 0 && input.y == 0) {
@@ -82,39 +58,35 @@ public class FakePlayer extends EntityLiving implements IAnimatable, IAnimationT
         this.prevRotationYaw += (this.rotationYaw - this.prevRotationYaw) * fact;
         this.prevRotationYawHead += (this.rotationYawHead - this.prevRotationYawHead) * fact;
         this.prevRenderYawOffset += (this.renderYawOffset - this.prevRenderYawOffset) * fact;
-
-        this.setPosition(p.posX, p.posY, p.posZ);
     }
 
     @Override
     public void onLivingUpdate() {
-        if (targetPlayerUUID == null) {
-            setDead();
-            return;
+        if(!world.isRemote){
+            this.setDead();
         }
-
-        if (p == null) {
-            p = world.getPlayerEntityByUUID(targetPlayerUUID);
-            if (p == null) {
-                waitTicks++;
-                if (waitTicks > MAX_WAIT_TICKS) {
-                    setDead();
+        if (count > 100) {
+            this.setDead();
+            System.out.println("Clear FP, reason: fail to match player");
+        }
+        if (world != null) {
+            if (pid == null || world.getPlayerEntityByUUID(pid) == null) {
+                count++;
+            }
+            if (pid != null && p == null) {
+                try {
+                    p = world.getPlayerEntityByUUID(pid);
+                } catch (Exception e) {
+                    count++;
                 }
-                return;
             }
         }
-
-        if (!p.isEntityAlive()) {
-            setDead();
-            return;
-        }
-
-        setRenderer();
     }
 
     @Override
     public void setDead() {
         super.setDead();
+        if (!world.isRemote) System.out.println("Killed FP as Spawned on Server Side, as it's not necessary.");
     }
 
     private final AnimationFactory factory = new AnimationFactory(this);

@@ -1,4 +1,4 @@
-package com.vbuser.movement.network;
+package com.vbuser.movement.network.glider;
 
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper;

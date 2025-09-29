@@ -1,4 +1,4 @@
-package com.vbuser.movement.network;
+package com.vbuser.movement.network.glider;
 
 import com.vbuser.movement.data.GliderData;
 import io.netty.buffer.ByteBuf;

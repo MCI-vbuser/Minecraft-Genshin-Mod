@@ -1,9 +1,9 @@
 package com.vbuser.movement.event;
 
 import com.vbuser.movement.capability.GliderUtils;
-import com.vbuser.movement.network.C2SGliderInput;
-import com.vbuser.movement.network.C2SToggleGlider;
-import com.vbuser.movement.network.GliderNetwork;
+import com.vbuser.movement.network.glider.C2SGliderInput;
+import com.vbuser.movement.network.glider.C2SToggleGlider;
+import com.vbuser.movement.network.glider.GliderNetwork;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.client.settings.KeyBinding;

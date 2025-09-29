@@ -1,4 +1,4 @@
-package com.vbuser.movement.network;
+package com.vbuser.movement.network.motion;
 
 import com.vbuser.movement.data.InputData;
 import com.vbuser.movement.event.FakeInput;
