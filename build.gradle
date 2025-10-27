@@ -21,7 +21,6 @@ mixin {
     config 'genshin.mixins.json'
 }
 
-
 version = '1.0'
 group = 'com.vbuser.genshin'
 archivesBaseName = 'genshin'
@@ -56,8 +55,9 @@ repositories {
 }
 
 configurations {
+    launcherDeps
     embed
-    compile.extendsFrom(embed)
+    compile.extendsFrom(embed,launcherDeps)
 }
 
 dependencies {
@@ -71,25 +71,47 @@ dependencies {
         exclude module: 'commons-io'
         exclude module: 'gson'
     }
+
+    launcherDeps 'org.json:json:20231013'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+processResources {
+    from(configurations.launcherDeps) {
+        into 'libs/'
+    }
+}
+
 jar {
     from {
         configurations.embed.collect { it.isDirectory() ? it : zipTree(it) }
     } {
-        exclude 'LICENSE.txt', 'META-INF/MANIFSET.MF', 'META-INF/maven/**', 'META-INF/*.RSA', 'META-INF/*.SF'
+        exclude 'LICENSE.txt', 'META-INF/MANIFEST.MF', 'META-INF/maven/**', 'META-INF/*.RSA', 'META-INF/*.SF'
+    }
+
+    from {
+        configurations.launcherDeps.collect { it.isDirectory() ? it : zipTree(it) }
+    } {
+        exclude 'LICENSE.txt', 'META-INF/MANIFEST.MF', 'META-INF/maven/**', 'META-INF/*.RSA', 'META-INF/*.SF'
+    }
+
+    from('build/resources/main/libs') {
+        into 'libs/'
     }
 
     manifest.attributes(
             'ForceLoadAsMod': 'true',
             'FMLCorePluginContainsFMLMod': 'true',
             'TweakClass': 'org.spongepowered.asm.launch.MixinTweaker',
-            'TweakOrder': '0'
+            'TweakOrder': '0',
+            'Main-Class': 'com.vbuser.launcher.Launcher',
+            'Class-Path': configurations.launcherDeps.collect { 'libs/' + it.name }.join(' ')
     )
+
+    dependsOn processResources
 }
 
 jar.finalizedBy('reobfJar')
@@ -106,7 +128,6 @@ publishing {
         }
     }
 }
-
 
 sourceSets {
     main {
