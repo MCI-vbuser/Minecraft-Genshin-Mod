@@ -38,7 +38,7 @@ public class MinecraftLibraryDownloader {
             ProgressServer.updateProgress("获取版本清单...", 50);
             ProgressServer.updateProgressDetail("currentStep", "获取版本信息");
             String versionManifest = downloadString(VERSION_MANIFEST_URL);
-            String versionUrl = getString(versionManifest, version);
+            String versionUrl = getVersionUrl(versionManifest, version);
 
             ProgressServer.updateProgress("下载版本JSON...", 55);
             ProgressServer.updateProgressDetail("currentStep", "下载版本配置");
@@ -60,21 +60,71 @@ public class MinecraftLibraryDownloader {
 
             ProgressServer.updateProgress("下载库文件...", 65);
             ProgressServer.updateProgressDetail("currentStep", "下载依赖库");
-            JSONArray libraries = versionJson.getJSONArray("libraries");
-            int totalLibraries = libraries.length();
-            int downloadedLibraries = 0;
+            downloadLibraries(versionJson, gameDir);
 
-            for (int i = 0; i < libraries.length(); i++) {
-                JSONObject library = libraries.getJSONObject(i);
+            ProgressServer.updateProgress("下载资源文件...", 90);
+            ProgressServer.updateProgressDetail("currentStep", "下载游戏资源");
+            downloadAssets(versionJson, gameDir);
 
-                if (library.has("rules")) {
-                    JSONArray rules = library.getJSONArray("rules");
-                    if (!shouldDownloadLibrary(rules)) {
-                        downloadedLibraries++;
-                        continue;
-                    }
-                }
+            System.out.println("Minecraft " + version + " downloaded successfully.");
+            ProgressServer.updateProgress("下载完成", 95);
+            ProgressServer.updateProgressDetail("currentStep", "准备启动游戏");
 
+        } catch (Exception e) {
+            ProgressServer.updateProgress("下载出错: " + e.getMessage(), 0);
+            ProgressServer.updateProgressDetail("error", e.getMessage());
+            throw new RuntimeException("下载失败", e);
+        }
+    }
+
+    public static void downloadForgeLibraries(String gameDir) {
+        try {
+            String forgeVersion = "1.12.2-forge-14.23.5.2854";
+            Path forgeVersionDir = Paths.get(gameDir, "versions", forgeVersion);
+            Path forgeJsonFile = forgeVersionDir.resolve(forgeVersion + ".json");
+
+            if (!Files.exists(forgeJsonFile)) {
+                throw new RuntimeException("Forge版本配置文件不存在: " + forgeJsonFile);
+            }
+
+            String forgeJsonStr = new String(Files.readAllBytes(forgeJsonFile));
+            JSONObject forgeJson = new JSONObject(forgeJsonStr);
+
+            ProgressServer.updateProgress("下载Forge库文件...", 65);
+            ProgressServer.updateProgressDetail("currentStep", "下载Forge依赖库");
+
+            downloadLibraries(forgeJson, gameDir);
+
+        } catch (Exception e) {
+            ProgressServer.updateProgress("下载Forge库文件出错: " + e.getMessage(), 0);
+            ProgressServer.updateProgressDetail("error", e.getMessage());
+            throw new RuntimeException("下载Forge库文件失败", e);
+        }
+    }
+
+    private static void downloadLibraries(JSONObject versionJson, String gameDir) throws IOException {
+        Path librariesDir = Paths.get(gameDir, "libraries");
+        Path versionDir = Paths.get(gameDir, "versions", versionJson.getString("id"));
+        Path nativesDir = versionDir.resolve("natives");
+
+        Files.createDirectories(nativesDir);
+
+        JSONArray libraries = versionJson.getJSONArray("libraries");
+        int totalLibraries = libraries.length();
+        int downloadedLibraries = 0;
+        int failedLibraries = 0;
+
+        System.out.println("需要下载 " + totalLibraries + " 个库文件");
+
+        for (int i = 0; i < libraries.length(); i++) {
+            JSONObject library = libraries.getJSONObject(i);
+
+            if (library.has("rules") && !shouldDownloadLibrary(library.getJSONArray("rules"))) {
+                downloadedLibraries++;
+                continue;
+            }
+
+            try {
                 JSONObject downloadsObj = library.getJSONObject("downloads");
 
                 if (downloadsObj.has("artifact")) {
@@ -82,7 +132,13 @@ public class MinecraftLibraryDownloader {
                     String path = artifact.getString("path");
                     String url = artifact.getString("url");
                     Path libraryPath = librariesDir.resolve(path);
-                    downloadLibrary(url, libraryPath.toString());
+
+                    if (!Files.exists(libraryPath)) {
+                        downloadLibrary(url, libraryPath.toString());
+                        System.out.println("下载库文件: " + libraryPath.getFileName());
+                    } else {
+                        System.out.println("库文件已存在: " + libraryPath.getFileName());
+                    }
                 }
 
                 if (downloadsObj.has("classifiers")) {
@@ -93,37 +149,38 @@ public class MinecraftLibraryDownloader {
                         String nativePath = nativeArtifact.getString("path");
                         String nativeUrl = nativeArtifact.getString("url");
                         Path nativeLibraryPath = librariesDir.resolve(nativePath);
-                        downloadLibrary(nativeUrl, nativeLibraryPath.toString());
 
-                        extractNativeLibrary(nativeLibraryPath.toString(), nativesDir.toString());
+                        if (!Files.exists(nativeLibraryPath)) {
+                            downloadLibrary(nativeUrl, nativeLibraryPath.toString());
+                            System.out.println("下载Native库: " + nativeLibraryPath.getFileName());
+
+                            extractNativeLibrary(nativeLibraryPath.toString(), nativesDir.toString());
+                        } else {
+                            System.out.println("Native库已存在: " + nativeLibraryPath.getFileName());
+                            extractNativeLibrary(nativeLibraryPath.toString(), nativesDir.toString());
+                        }
                     }
                 }
 
                 downloadedLibraries++;
-                int progress = 65 + (int)((downloadedLibraries * 25.0) / totalLibraries);
-                ProgressServer.updateProgress(
-                        "下载库文件 (" + downloadedLibraries + "/" + totalLibraries + ")",
-                        progress
-                );
-                ProgressServer.updateProgressDetail("librariesProgress", downloadedLibraries + "/" + totalLibraries);
+
+            } catch (Exception e) {
+                failedLibraries++;
+                System.err.println("下载库文件失败: " + library + " - " + e.getMessage());
             }
 
-            ProgressServer.updateProgress("下载资源文件...", 90);
-            ProgressServer.updateProgressDetail("currentStep", "下载游戏资源");
-            downloadAssets(versionJson, gameDir);
-
-            System.out.println("Minecraft " + version + " native downloaded successfully.");
-            ProgressServer.updateProgress("下载完成", 95);
-            ProgressServer.updateProgressDetail("currentStep", "准备启动游戏");
-
-        } catch (Exception e) {
-            ProgressServer.updateProgress("下载出错: " + e.getMessage(), 0);
-            ProgressServer.updateProgressDetail("error", e.getMessage());
-            throw new RuntimeException("Err", e);
+            int progress = 65 + (int)((downloadedLibraries * 25.0) / totalLibraries);
+            ProgressServer.updateProgress(
+                    "下载库文件 (" + downloadedLibraries + "/" + totalLibraries + ")",
+                    progress
+            );
+            ProgressServer.updateProgressDetail("librariesProgress", downloadedLibraries + "/" + totalLibraries);
         }
+
+        System.out.println("库文件下载完成: " + downloadedLibraries + " 成功, " + failedLibraries + " 失败");
     }
 
-    private static String getString(String versionManifest, String version) {
+    private static String getVersionUrl(String versionManifest, String version) {
         JSONObject manifest = new JSONObject(versionManifest);
         JSONArray versions = manifest.getJSONArray("versions");
 
@@ -137,26 +194,48 @@ public class MinecraftLibraryDownloader {
         }
 
         if (versionUrl == null) {
-            throw new RuntimeException("Couldn't found info of " + version + ".");
+            throw new RuntimeException("找不到版本 " + version + " 的信息");
         }
         return versionUrl;
     }
 
     private static boolean shouldDownloadLibrary(JSONArray rules) {
-        try {
-            for (int i = 0; i < rules.length(); i++) {
-                JSONObject rule = rules.getJSONObject(i);
-                if (rule.has("action")) {
-                    String action = rule.getString("action");
-                    if ("disallow".equals(action)) {
+        String os = System.getProperty("os.name").toLowerCase();
+
+        for (int i = 0; i < rules.length(); i++) {
+            JSONObject rule = rules.getJSONObject(i);
+            String action = rule.getString("action");
+
+            if (rule.has("os")) {
+                JSONObject osRule = rule.getJSONObject("os");
+                String ruleOs = osRule.getString("name");
+                boolean osMatches = false;
+
+                if (ruleOs.equals("windows") && os.contains("win")) {
+                    osMatches = true;
+                } else if (ruleOs.equals("osx") && os.contains("mac")) {
+                    osMatches = true;
+                } else if (ruleOs.equals("linux") && (os.contains("nix") || os.contains("nux"))) {
+                    osMatches = true;
+                }
+
+                if (!osMatches) {
+                    if ("allow".equals(action)) {
                         return false;
+                    } else if ("disallow".equals(action)) {
+                        continue;
                     }
                 }
             }
-            return true;
-        } catch (Exception e) {
-            return true;
+
+            if ("allow".equals(action)) {
+                return true;
+            } else if ("disallow".equals(action)) {
+                return false;
+            }
         }
+
+        return true;
     }
 
     private static String getNativeClassifier() {
@@ -187,9 +266,11 @@ public class MinecraftLibraryDownloader {
         Files.createDirectories(objectsDir);
 
         Path assetIndexFile = indexesDir.resolve(assetIndexId + ".json");
-        downloadFile(assetIndexUrl, assetIndexFile.toString());
+        if (!Files.exists(assetIndexFile)) {
+            downloadFile(assetIndexUrl, assetIndexFile.toString());
+        }
 
-        System.out.println("Downloaded index file: " + assetIndexFile);
+        System.out.println("下载资源索引文件: " + assetIndexFile);
 
         AssetDownloader.downloadAssets(versionJson, gameDir);
     }
@@ -213,25 +294,23 @@ public class MinecraftLibraryDownloader {
                             fos.write(buffer, 0, length);
                         }
                     }
-                    System.out.println("Extract native file: " + outputPath);
+                    System.out.println("提取native文件: " + outputPath.getFileName());
                 }
                 zis.closeEntry();
             }
         } catch (IOException e) {
-            System.err.println("Error occurred when extracting native file: " + e.getMessage());
+            System.err.println("提取native文件时出错: " + e.getMessage());
         }
     }
 
     private static void downloadLibrary(String url, String filePath) throws IOException {
         File file = new File(filePath);
         if (file.exists()) {
-            System.out.println("File skipped: " + filePath);
             return;
         }
 
         Files.createDirectories(Paths.get(filePath).getParent());
         downloadFile(url, filePath);
-        System.out.println("Downloaded library file: " + filePath);
     }
 
     private static void downloadFile(String fileUrl, String savePath) throws IOException {

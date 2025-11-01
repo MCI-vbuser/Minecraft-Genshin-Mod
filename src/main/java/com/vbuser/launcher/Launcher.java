@@ -1,5 +1,6 @@
 package com.vbuser.launcher;
 
+import com.vbuser.launcher.downloader.ForgeInstaller;
 import com.vbuser.launcher.downloader.MinecraftLibraryDownloader;
 import com.vbuser.launcher.downloader.ModDownloader;
 
@@ -113,6 +114,12 @@ public class Launcher {
         try {
             ProgressServer.updateProgress("开始下载Minecraft资源", 40);
             MinecraftLibraryDownloader.downloadMinecraft1122();
+
+            ProgressServer.updateProgress("安装Forge", 50);
+            ForgeInstaller.installForge(".minecraft");
+
+            ProgressServer.updateProgress("下载Forge库文件", 65);
+            MinecraftLibraryDownloader.downloadForgeLibraries(".minecraft");
 
             ProgressServer.updateProgress("下载其他模组", 70);
             ModDownloader.downloadAdditionalMods();
