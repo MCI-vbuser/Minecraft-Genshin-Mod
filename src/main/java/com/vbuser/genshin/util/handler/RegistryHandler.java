@@ -1,5 +1,6 @@
 package com.vbuser.genshin.util.handler;
 
+import com.vbuser.genshin.init.EntityInit;
 import com.vbuser.genshin.init.ModBlocks;
 import com.vbuser.genshin.init.ModItems;
 import com.vbuser.genshin.util.IHasModel;
@@ -8,6 +9,7 @@ import net.minecraft.item.Item;
 import net.minecraftforge.client.event.ModelRegistryEvent;
 import net.minecraftforge.event.RegistryEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 
 @Mod.EventBusSubscriber(modid = "genshin")
@@ -35,6 +37,12 @@ public class RegistryHandler {
                 ((IHasModel) block).registerModels();
             }
         }
+
+        RenderHandler.registerRenders();
+    }
+
+    public static void preInitRegistries(FMLPreInitializationEvent ignored){
+        EntityInit.registerEntities();
     }
 
 }

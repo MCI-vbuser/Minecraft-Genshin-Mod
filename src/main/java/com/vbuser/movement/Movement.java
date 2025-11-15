@@ -2,7 +2,6 @@ package com.vbuser.movement;
 
 import com.vbuser.movement.capability.GliderUtils;
 import com.vbuser.movement.command.FOVCommand;
-import com.vbuser.movement.entity.EntityInit;
 import com.vbuser.movement.entity.FakePlayer;
 import com.vbuser.movement.entity.geckolib.FakePlayerRender;
 import com.vbuser.movement.event.FakeInput;
@@ -43,7 +42,6 @@ public class Movement {
     @Mod.EventHandler
     public void onPreInit(FMLPreInitializationEvent event) {
         GliderUtils.initGlider(event);
-        EntityInit.registerEntities();
         RenderingRegistry.registerEntityRenderingHandler(FakePlayer.class, FakePlayerRender::new);
     }
 

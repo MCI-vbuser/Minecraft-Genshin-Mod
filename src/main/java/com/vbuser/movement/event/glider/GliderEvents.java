@@ -1,4 +1,4 @@
-package com.vbuser.movement.event;
+package com.vbuser.movement.event.glider;
 
 import com.vbuser.movement.capability.GliderUtils;
 import com.vbuser.movement.data.GliderData;

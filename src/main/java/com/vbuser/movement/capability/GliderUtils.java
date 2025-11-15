@@ -1,8 +1,8 @@
 package com.vbuser.movement.capability;
 
 import com.vbuser.genshin.data.save.RuleManager;
-import com.vbuser.movement.event.GliderInputHandler;
-import com.vbuser.movement.event.GliderEvents;
+import com.vbuser.movement.event.glider.GliderInputHandler;
+import com.vbuser.movement.event.glider.GliderEvents;
 import com.vbuser.movement.network.glider.GliderNetwork;
 import net.minecraft.block.material.Material;
 import net.minecraft.entity.player.EntityPlayer;

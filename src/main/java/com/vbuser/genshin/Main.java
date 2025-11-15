@@ -14,11 +14,13 @@ import com.vbuser.genshin.init.key.KeyboardManager;
 import com.vbuser.genshin.items.FoodBase;
 import com.vbuser.genshin.proxy.CommonProxy;
 import com.vbuser.genshin.tabs.TabBase;
+import com.vbuser.genshin.util.handler.RegistryHandler;
 import com.vbuser.ime.IMEController;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.biome.Biome;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegistryEvent;
+import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
@@ -26,8 +28,14 @@ import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
+import software.bernie.geckolib3.GeckoLib;
+import software.bernie.geckolib3.resource.ResourceListener;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.FutureTask;
 
 @SuppressWarnings("unused")
 @Mod(modid = "genshin", name = "Minecraft Genshin Mod", version = "basic 1.14")
@@ -87,6 +95,8 @@ public class Main {
         ModItems.ITEMS.stream()
                 .filter(item -> item instanceof FoodBase)
                 .forEach(item -> item.setCreativeTab(SHI_WU));
+        //Geckolib:
+        initialize();
     }
 
     @Mod.EventHandler
@@ -94,6 +104,7 @@ public class Main {
         RuleManager.preInit(event);
         RuleManager.registerDefaultRule();
         NetworkHandler.registerMessages();
+        RegistryHandler.preInitRegistries(event);
     }
 
     @Mod.EventHandler
@@ -122,6 +133,33 @@ public class Main {
         } else if (ime && Minecraft.getMinecraft().player == null) {
             ime = false;
             IMEController.toggleIME(false);
+        }
+    }
+
+    /**
+     * Geckolib Initialize:
+     */
+    public static boolean hasInitialized;
+
+    public static void initialize(){
+        if(!hasInitialized){
+            FMLCommonHandler.callFuture(new FutureTask<>(() -> {
+                if(FMLCommonHandler.instance().getSide() == Side.CLIENT){
+                    doOnlyClient();
+                }
+            }, null));
+            GeckoLib.initialize();
+            hasInitialized = true;
+        }
+    }
+
+    @SideOnly(Side.CLIENT)
+    private static void doOnlyClient(){
+        try {
+            ResourceListener.registerReloadListener();
+            System.out.println("GeckoLib initialized successfully");
+        } catch (Exception e) {
+            System.err.println("Failed to initialize GeckoLib: " + e.getMessage());
         }
     }
 }

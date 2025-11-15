@@ -18,7 +18,7 @@ public class ModDownloader {
     private static final Map<String, String> MOD_URLS = new HashMap<>();
 
     static {
-        MOD_URLS.put("geckolib-forge-1.12.2-3.0.31.jar","https://cdn.modrinth.com/data/8BmcQJ2H/versions/PePYVhnE/geckolib-forge-1.12.2-3.0.31.jar");
+        MOD_URLS.put("geckolib-forge-1.12.2-3.0.21.jar","https://mediafilez.forgecdn.net/files/3629/667/geckolib-forge-1.12.2-3.0.21.jar");
         MOD_URLS.put("mcef-1.12.2-1.33.jar","https://github.com/CinemaMod/mcef/releases/download/1.12.2-1.33/mcef-1.12.2-1.33.jar");
     }
 
