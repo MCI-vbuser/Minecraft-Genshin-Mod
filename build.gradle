@@ -1,0 +1,116 @@
+buildscript {
+    repositories {
+        mavenCentral()
+        maven { url = 'https://maven.aliyun.com/repository/public/' }
+        maven { url = 'https://maven.aliyun.com/repository/central' }
+        maven { url = 'https://files.minecraftforge.net/maven' }
+        maven { url = 'https://repo.spongepowered.org/maven' }
+    }
+    dependencies {
+        classpath 'net.minecraftforge.gradle:ForgeGradle:3.+'
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+    }
+}
+
+apply plugin: 'net.minecraftforge.gradle'
+apply plugin: 'eclipse'
+apply plugin: 'maven-publish'
+apply plugin: 'org.spongepowered.mixin'
+
+mixin {
+    add sourceSets.main, 'mixins.genshin.refmap.json'
+    config 'genshin.mixins.json'
+}
+
+version = '1.0'
+group = 'com.vbuser.genshin'
+archivesBaseName = 'genshin'
+
+sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
+
+minecraft {
+    mappings channel: 'snapshot', version: '20171003-1.12'
+    runs {
+        client {
+            workingDirectory project.file('run')
+
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'debug'
+            arg '-torg.spongepowered.asm.launch.MixinTweaker'
+        }
+
+        server {
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'debug'
+            arg '-torg.spongepowered.asm.launch.MixinTweaker'
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.aliyun.com/repository/public/' }
+    maven { url = 'https://maven.aliyun.com/repository/central' }
+    maven { url = 'https://files.minecraftforge.net/maven' }
+    maven { url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven' }
+    maven { url = 'https://repo.spongepowered.org/maven' }
+}
+
+configurations {
+    embed
+    compile.extendsFrom(embed)
+}
+
+dependencies {
+    minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2854'
+    runtimeOnly fg.deobf(files("libs/mcef.jar"))
+    implementation fg.deobf(files("libs/mcef.jar"))
+    embed files("libs/ime.jar")
+    implementation fg.deobf('software.bernie.geckolib:forge-1.12.2-geckolib:3.0.21')
+    embed 'com.h2database:h2:2.1.214'
+    embed('org.spongepowered:mixin:0.8.3-SNAPSHOT') {
+        exclude module: 'guava'
+        exclude module: 'commons-io'
+        exclude module: 'gson'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+jar {
+    from {
+        configurations.embed.collect { it.isDirectory() ? it : zipTree(it) }
+    } {
+        exclude 'LICENSE.txt', 'META-INF/MANIFEST.MF', 'META-INF/maven/**', 'META-INF/*.RSA', 'META-INF/*.SF'
+    }
+
+    manifest.attributes(
+            'ForceLoadAsMod': 'true',
+            'FMLCorePluginContainsFMLMod': 'true',
+            'TweakClass': 'org.spongepowered.asm.launch.MixinTweaker',
+            'TweakOrder': '0'
+    )
+}
+
+jar.finalizedBy('reobfJar')
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            artifact jar
+        }
+    }
+    repositories {
+        maven {
+            url "file:///${project.projectDir}/mcmodsrepo"
+        }
+    }
+}
+
+sourceSets {
+    main {
+        output.resourcesDir = output.classesDir
+    }
+}

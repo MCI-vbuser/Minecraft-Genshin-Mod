@@ -1,0 +1,30 @@
+[
+  {
+    "modid": "genshin",
+    "name": "Minecraft Impact",
+    "description": "Minecraft Genshin Mod.",
+    "version": "basic 1.1.45(refactored)",
+    "mcversion": "1.12.2",
+    "url": "https://github.com/Douyin-vbuser/Minecraft-Genshin-Mod",
+    "updateUrl": "",
+    "authorList": ["MCI-vbuser"],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  },
+  {
+    "modid": "database",
+    "name": "Database",
+    "description": "Simple database design for MCI.",
+    "version": "release 1.1.08-rc",
+    "mcversion": "1.12.2",
+    "url": "https://github.com/Douyin-vbuser/Minecraft-Genshin-Mod/tree/master/src/main/java/com/vbuser/database",
+    "updateUrl": "",
+    "authorList": ["MCI-vbuser"],
+    "credits": "",
+    "logoFile": "",
+    "screenshots": [],
+    "dependencies": []
+  }
+]
