@@ -1,4 +1,4 @@
-package com.vbuser.genshin.tool;
+package com.vbuser.genshin.tool.ime;
 
 import com.vbuser.ime.IMEController;
 import net.minecraft.client.Minecraft;

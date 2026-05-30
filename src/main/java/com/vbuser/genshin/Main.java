@@ -1,6 +1,7 @@
 package com.vbuser.genshin;
 
-import com.vbuser.genshin.tool.IMEHandler;
+import com.vbuser.genshin.tool.forcesprint.KeyInputHandler;
+import com.vbuser.genshin.tool.ime.IMEHandler;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import com.vbuser.genshin.tool.network.example.ClientEventHandler;
 import com.vbuser.genshin.tool.network.example.ServerEventHandler;
@@ -31,6 +32,8 @@ public class Main {
             MinecraftForge.EVENT_BUS.register(new ClientEventHandler());
         }
         MinecraftForge.EVENT_BUS.register(new ServerEventHandler());
+        // Register force sprint.
+        MinecraftForge.EVENT_BUS.register(new KeyInputHandler());
     }
 
 }

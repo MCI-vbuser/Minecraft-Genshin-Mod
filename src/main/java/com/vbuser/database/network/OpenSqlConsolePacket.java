@@ -29,8 +29,6 @@ public class OpenSqlConsolePacket extends ModPacket {
 
     @SideOnly(Side.CLIENT)
     private void openGui() {
-        Minecraft.getMinecraft().addScheduledTask(() -> {
-            Minecraft.getMinecraft().displayGuiScreen(new SqlConsoleGui());
-        });
+        Minecraft.getMinecraft().addScheduledTask(() -> Minecraft.getMinecraft().displayGuiScreen(new SqlConsoleGui()));
     }
 }
