@@ -23,6 +23,7 @@ public class ClassScanner {
                     }
                 } catch (Throwable t) {
                     // System.err.println("Skipping class " + info.getName() + " due to: " + t);
+                    // What we need is only skip, but something should be written here.
                 }
             }
             return result;

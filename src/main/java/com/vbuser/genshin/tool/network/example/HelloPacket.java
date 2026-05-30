@@ -7,6 +7,7 @@ import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
 public class HelloPacket extends ModPacket {
     private String message;
 
+    @SuppressWarnings("unused")
     public HelloPacket() {}
 
     public HelloPacket(String message) {
@@ -37,5 +38,4 @@ public class HelloPacket extends ModPacket {
         }
     }
 
-    public String getMessage() { return message; }
 }
