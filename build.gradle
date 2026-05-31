@@ -18,7 +18,7 @@ apply plugin: 'maven-publish'
 apply plugin: 'org.spongepowered.mixin'
 
 mixin {
-    add sourceSets.main, 'mixins.genshin.refmap.json'
+    add sourceSets.main, 'refmap.genshin.json'
     config 'genshin.mixins.json'
 }
 

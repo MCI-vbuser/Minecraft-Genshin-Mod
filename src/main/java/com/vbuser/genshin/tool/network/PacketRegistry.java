@@ -1,10 +1,11 @@
 package com.vbuser.genshin.tool.network;
+
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.vbuser.genshin.tool.network.util.autoregist.ClassScanner;
 import io.netty.buffer.ByteBuf;
 
-import java.util.Set;
+import java.util.*;
 
 public class PacketRegistry {
     private static final BiMap<Class<? extends ModPacket>, Integer> idMap = HashBiMap.create();
@@ -41,7 +42,9 @@ public class PacketRegistry {
 
     public static void autoRegister(String packageName) {
         Set<Class<?>> packetClasses = ClassScanner.findSubclasses(packageName, ModPacket.class);
-        for (Class<?> clazz : packetClasses) {
+        List<Class<?>> sortedClasses = new ArrayList<>(packetClasses);
+        sortedClasses.sort(Comparator.comparing(Class::getName));
+        for (Class<?> clazz : sortedClasses) {
             @SuppressWarnings("unchecked")
             Class<? extends ModPacket> packetClass = (Class<? extends ModPacket>) clazz;
             register(packetClass);
