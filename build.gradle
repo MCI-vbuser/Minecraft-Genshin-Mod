@@ -63,8 +63,7 @@ configurations {
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2854'
-    runtimeOnly fg.deobf(files("libs/mcef.jar"))
-    implementation fg.deobf(files("libs/mcef.jar"))
+    embed files("libs/jfxrt.jar")
     embed files("libs/ime.jar")
     implementation fg.deobf('software.bernie.geckolib:forge-1.12.2-geckolib:3.0.21')
     embed 'com.h2database:h2:2.1.214'

@@ -44,6 +44,9 @@ public class RequestBGMPacket extends ModPacket {
     public void handle(MessageContext ctx) {
         if (ctx.side.isServer()) {
             EntityPlayerMP player = ctx.getServerHandler().player;
+            if (fileName.contains("..")) {
+                return;
+            }
             BGMFileServerHandler.handleRequest(player, fileName);
         }
     }
