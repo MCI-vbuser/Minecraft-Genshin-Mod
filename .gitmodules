@@ -1,0 +1,3 @@
+[submodule "misc/MCGit"]
+	path = misc/MCGit
+	url = git@github.com:MCI-vbuser/MCGit.git

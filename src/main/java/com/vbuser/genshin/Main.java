@@ -6,6 +6,7 @@ import com.vbuser.genshin.tool.cv.PlayerEventHandler;
 import com.vbuser.genshin.tool.cv.command.CommandCG;
 import com.vbuser.genshin.tool.forcesprint.KeyInputHandler;
 import com.vbuser.genshin.tool.ime.IMEHandler;
+import com.vbuser.genshin.tool.mcgit.UpdateCommand;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import com.vbuser.genshin.tool.network.example.ClientEventHandler;
 import com.vbuser.genshin.tool.network.example.ServerEventHandler;
@@ -52,6 +53,7 @@ public class Main {
     public void serverInit(FMLServerStartingEvent event) {
         event.registerServerCommand(new CommandBGM());
         event.registerServerCommand(new CommandCG());
+        event.registerServerCommand(new UpdateCommand());
     }
 
 }
