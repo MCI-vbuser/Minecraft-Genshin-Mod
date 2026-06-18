@@ -12,50 +12,11 @@ public class DatabaseHelper {
 
     public static void initialize(String dbUrl) {
         currentDbUrl = dbUrl;
-        try (Connection conn = DriverManager.getConnection(dbUrl, "sa", "")) {
+        try (Connection ignored = DriverManager.getConnection(dbUrl, "sa", "")) {
             LOGGER.info("Connected to H2 database at: {}", dbUrl);
-            createGameruleTableIfNotExists(conn);
-            createInventoryTableIfNotExists(conn);
             LOGGER.info("Database tables ready.");
         } catch (SQLException e) {
             LOGGER.error("Failed to initialize H2 database", e);
-        }
-    }
-
-    private static void createGameruleTableIfNotExists(Connection conn) throws SQLException {
-        DatabaseMetaData meta = conn.getMetaData();
-        try (ResultSet rs = meta.getTables(null, null, "GAMERULE", null)) {
-            if (rs.next()) {
-                LOGGER.info("Table 'gamerule' already exists.");
-                return;
-            }
-        }
-        String sql = "CREATE TABLE gamerule (" +
-                "rule VARCHAR(255) PRIMARY KEY, " +
-                "value VARCHAR(255) NOT NULL, " +
-                "type VARCHAR(50) NOT NULL" +
-                ")";
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-            LOGGER.info("Created table 'gamerule'.");
-        }
-    }
-
-    private static void createInventoryTableIfNotExists(Connection conn) throws SQLException {
-        DatabaseMetaData meta = conn.getMetaData();
-        try (ResultSet rs = meta.getTables(null, null, "INVENTORY", null)) {
-            if (rs.next()) {
-                LOGGER.info("Table 'inventory' already exists.");
-                return;
-            }
-        }
-        String sql = "CREATE TABLE inventory (" +
-                "item VARCHAR(255) PRIMARY KEY, " +
-                "count INT NOT NULL" +
-                ")";
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-            LOGGER.info("Created table 'inventory'.");
         }
     }
 
@@ -93,6 +54,18 @@ public class DatabaseHelper {
             }
         } catch (SQLException e) {
             return SqlExecutionResult.error(e.getMessage());
+        }
+    }
+
+    public static void shutdown() {
+        if (currentDbUrl == null) return;
+        try (Connection conn = DriverManager.getConnection(currentDbUrl, "sa", "")) {
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("SHUTDOWN");
+            }
+            LOGGER.info("H2 database shutdown successfully.");
+        } catch (SQLException e) {
+            LOGGER.error("Failed to shutdown H2 database", e);
         }
     }
 

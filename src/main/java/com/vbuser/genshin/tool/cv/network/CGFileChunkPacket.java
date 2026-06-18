@@ -55,4 +55,9 @@ public class CGFileChunkPacket extends ModPacket {
         Minecraft.getMinecraft().addScheduledTask(() ->
                 CGFileClientCache.receiveChunk(fileName, chunkIndex, totalChunks, data));
     }
+
+    @Override
+    public boolean neverAggregate(){
+        return true;
+    }
 }

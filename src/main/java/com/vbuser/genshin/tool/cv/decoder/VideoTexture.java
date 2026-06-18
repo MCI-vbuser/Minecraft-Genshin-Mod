@@ -1,4 +1,4 @@
-package com.vbuser.genshin.tool.cv;
+package com.vbuser.genshin.tool.cv.decoder;
 
 import net.minecraft.client.renderer.GlStateManager;
 import org.lwjgl.BufferUtils;

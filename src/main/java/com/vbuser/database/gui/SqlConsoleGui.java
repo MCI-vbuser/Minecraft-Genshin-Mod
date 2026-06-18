@@ -65,7 +65,6 @@ public class SqlConsoleGui extends GuiScreen {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
-        // 处理 ESC 键关闭界面
         if (keyCode == Keyboard.KEY_ESCAPE) {
             mc.displayGuiScreen(null);
             return;

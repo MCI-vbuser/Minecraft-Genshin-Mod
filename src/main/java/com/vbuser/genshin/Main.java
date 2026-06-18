@@ -1,7 +1,8 @@
 package com.vbuser.genshin;
 
+import com.vbuser.genshin.tool.al.event.BGMClientEventHandler;
 import com.vbuser.genshin.tool.al.command.CommandBGM;
-import com.vbuser.genshin.tool.cv.FXVideoPlayer;
+import com.vbuser.genshin.tool.cv.decoder.FXVideoPlayer;
 import com.vbuser.genshin.tool.cv.PlayerEventHandler;
 import com.vbuser.genshin.tool.cv.command.CommandCG;
 import com.vbuser.genshin.tool.forcesprint.KeyInputHandler;
@@ -47,6 +48,8 @@ public class Main {
         // Initialize video decoder.
         FXVideoPlayer.initJavaFX();
         MinecraftForge.EVENT_BUS.register(new PlayerEventHandler());
+        // Register Stopper for sideload bgm system.
+        MinecraftForge.EVENT_BUS.register(new BGMClientEventHandler());
     }
 
     @Mod.EventHandler

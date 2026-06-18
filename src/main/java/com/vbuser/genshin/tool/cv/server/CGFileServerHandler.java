@@ -11,7 +11,6 @@ public class CGFileServerHandler {
     private static final int CHUNK_SIZE = 16384;
     private static final File CG_DIR = new File("cg");
 
-    @SuppressWarnings("BusyWait")
     public static void handleRequest(EntityPlayerMP player, String fileName) {
         File file = new File(CG_DIR, fileName);
         if (!file.exists()) {
@@ -31,7 +30,7 @@ public class CGFileServerHandler {
                     CGFileChunkPacket packet = new CGFileChunkPacket(fileName, index, totalChunks, chunkData);
                     NetworkManager.sendToPlayer(packet, player);
                     index++;
-                    Thread.sleep(50);
+                    //Thread.sleep(50);
                 }
             } catch (Exception e) {
                 // e.printStackTrace();

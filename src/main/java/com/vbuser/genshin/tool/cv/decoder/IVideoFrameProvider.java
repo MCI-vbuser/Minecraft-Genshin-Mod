@@ -1,4 +1,4 @@
-package com.vbuser.genshin.tool.cv;
+package com.vbuser.genshin.tool.cv.decoder;
 
 public interface IVideoFrameProvider {
     boolean isPlaying();

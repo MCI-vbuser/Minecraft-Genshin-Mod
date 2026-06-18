@@ -1,6 +1,6 @@
 package com.vbuser.genshin.tool.cv.network;
 
-import com.vbuser.genshin.tool.cv.VideoPlaybackManager;
+import com.vbuser.genshin.tool.cv.decoder.VideoPlaybackManager;
 import com.vbuser.genshin.tool.network.ModPacket;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.client.Minecraft;
@@ -8,7 +8,6 @@ import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 
 public class PlayCGPacket extends ModPacket {
@@ -38,13 +37,6 @@ public class PlayCGPacket extends ModPacket {
     @Override
     @SideOnly(Side.CLIENT)
     public void handle(MessageContext ctx) {
-        Minecraft.getMinecraft().addScheduledTask(() -> {
-            File clientFile = new File("cg/" + fileName);
-            if (clientFile.exists()) {
-                VideoPlaybackManager.getInstance().playVideo(fileName);
-            } else {
-                RequestCGFilePacket.send(fileName);
-            }
-        });
+        Minecraft.getMinecraft().addScheduledTask(() -> VideoPlaybackManager.getInstance().playVideo(fileName));
     }
 }

@@ -1,6 +1,11 @@
-package com.vbuser.genshin.tool.cv;
+package com.vbuser.genshin.tool.cv.decoder;
 
+import com.vbuser.genshin.tool.cv.GuiVideoOverlay;
+import com.vbuser.genshin.tool.cv.network.RequestCGFilePacket;
 import net.minecraft.client.Minecraft;
+import net.minecraftforge.fml.common.FMLCommonHandler;
+
+import java.io.File;
 
 public class VideoPlaybackManager {
     private static final VideoPlaybackManager INSTANCE = new VideoPlaybackManager();
@@ -17,15 +22,44 @@ public class VideoPlaybackManager {
         if (fileName.contains("..")) {
             return;
         }
+        if (FMLCommonHandler.instance().getEffectiveSide().isClient()) {
+            File clientFile = new File("cg/" + fileName);
+            if (clientFile.exists()) {
+                startLocalPlayback(fileName);
+            } else {
+                RequestCGFilePacket.send(fileName);
+            }
+        } else {
+            throw new IllegalStateException("Server cannot directly play video, use CGAPI.playCG(player, fileName) instead.");
+        }
+    }
+
+    private void startLocalPlayback(String fileName) {
         String fullPath = "cg/" + fileName;
         Minecraft.getMinecraft().addScheduledTask(() -> {
-            overlayGui = new GuiVideoOverlay();
-            Minecraft.getMinecraft().displayGuiScreen(overlayGui);
+            if (overlayGui == null) {
+                overlayGui = new GuiVideoOverlay();
+                Minecraft.getMinecraft().displayGuiScreen(overlayGui);
+            }
         });
         FXVideoPlayer player = new FXVideoPlayer(fullPath);
         player.start();
         currentPlayer = player;
         textureReady = false;
+    }
+
+    public void stopPlayerOnly() {
+        if (currentPlayer != null) {
+            currentPlayer.stop();
+            currentPlayer = null;
+        }
+        Minecraft.getMinecraft().addScheduledTask(() -> {
+            if (currentTexture != null) {
+                currentTexture.close();
+                currentTexture = null;
+            }
+            textureReady = false;
+        });
     }
 
     public void stopVideo() {

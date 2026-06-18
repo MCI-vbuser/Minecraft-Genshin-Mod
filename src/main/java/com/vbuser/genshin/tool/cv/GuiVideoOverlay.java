@@ -1,4 +1,5 @@
 package com.vbuser.genshin.tool.cv;
+import com.vbuser.genshin.tool.cv.decoder.VideoPlaybackManager;
 import net.minecraft.client.gui.GuiScreen;
 
 public class GuiVideoOverlay extends GuiScreen {
@@ -25,5 +26,11 @@ public class GuiVideoOverlay extends GuiScreen {
 
     public void closeOverlay() {
         this.mc.displayGuiScreen(null);
+    }
+
+    @Override
+    public void onGuiClosed() {
+        super.onGuiClosed();
+        VideoPlaybackManager.getInstance().stopPlayerOnly();
     }
 }

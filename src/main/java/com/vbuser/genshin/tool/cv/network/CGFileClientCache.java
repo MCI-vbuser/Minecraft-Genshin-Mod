@@ -1,6 +1,6 @@
 package com.vbuser.genshin.tool.cv.network;
 
-import com.vbuser.genshin.tool.cv.VideoPlaybackManager;
+import com.vbuser.genshin.tool.cv.decoder.VideoPlaybackManager;
 import net.minecraft.client.Minecraft;
 
 import java.io.File;
