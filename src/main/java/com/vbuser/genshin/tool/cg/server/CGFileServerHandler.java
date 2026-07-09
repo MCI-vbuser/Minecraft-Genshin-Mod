@@ -1,6 +1,6 @@
-package com.vbuser.genshin.tool.cv.server;
+package com.vbuser.genshin.tool.cg.server;
 
-import com.vbuser.genshin.tool.cv.network.CGFileChunkPacket;
+import com.vbuser.genshin.tool.cg.network.CGFileChunkPacket;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import net.minecraft.entity.player.EntityPlayerMP;
 

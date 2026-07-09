@@ -1,4 +1,4 @@
-package com.vbuser.genshin.tool.cv.network;
+package com.vbuser.genshin.tool.cg.network;
 
 import com.vbuser.genshin.tool.network.ModPacket;
 import io.netty.buffer.ByteBuf;

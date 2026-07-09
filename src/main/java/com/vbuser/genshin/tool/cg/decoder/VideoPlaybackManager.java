@@ -1,7 +1,7 @@
-package com.vbuser.genshin.tool.cv.decoder;
+package com.vbuser.genshin.tool.cg.decoder;
 
-import com.vbuser.genshin.tool.cv.GuiVideoOverlay;
-import com.vbuser.genshin.tool.cv.network.RequestCGFilePacket;
+import com.vbuser.genshin.tool.cg.GuiVideoOverlay;
+import com.vbuser.genshin.tool.cg.network.RequestCGFilePacket;
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.fml.common.FMLCommonHandler;
 

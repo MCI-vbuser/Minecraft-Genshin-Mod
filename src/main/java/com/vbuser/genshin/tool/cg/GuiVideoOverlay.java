@@ -1,5 +1,5 @@
-package com.vbuser.genshin.tool.cv;
-import com.vbuser.genshin.tool.cv.decoder.VideoPlaybackManager;
+package com.vbuser.genshin.tool.cg;
+import com.vbuser.genshin.tool.cg.decoder.VideoPlaybackManager;
 import net.minecraft.client.gui.GuiScreen;
 
 public class GuiVideoOverlay extends GuiScreen {

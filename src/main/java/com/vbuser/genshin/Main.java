@@ -2,9 +2,9 @@ package com.vbuser.genshin;
 
 import com.vbuser.genshin.tool.al.event.BGMClientEventHandler;
 import com.vbuser.genshin.tool.al.command.CommandBGM;
-import com.vbuser.genshin.tool.cv.decoder.FXVideoPlayer;
-import com.vbuser.genshin.tool.cv.PlayerEventHandler;
-import com.vbuser.genshin.tool.cv.command.CommandCG;
+import com.vbuser.genshin.tool.cg.decoder.FXVideoPlayer;
+import com.vbuser.genshin.tool.cg.PlayerEventHandler;
+import com.vbuser.genshin.tool.cg.command.CommandCG;
 import com.vbuser.genshin.tool.forcesprint.KeyInputHandler;
 import com.vbuser.genshin.tool.ime.IMEHandler;
 import com.vbuser.genshin.tool.mcgit.UpdateCommand;

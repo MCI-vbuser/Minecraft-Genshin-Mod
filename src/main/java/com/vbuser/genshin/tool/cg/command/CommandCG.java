@@ -1,6 +1,6 @@
-package com.vbuser.genshin.tool.cv.command;
+package com.vbuser.genshin.tool.cg.command;
 
-import com.vbuser.genshin.tool.cv.network.PlayCGPacket;
+import com.vbuser.genshin.tool.cg.network.PlayCGPacket;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;

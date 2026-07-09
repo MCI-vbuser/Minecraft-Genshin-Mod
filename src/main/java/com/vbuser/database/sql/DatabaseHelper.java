@@ -21,6 +21,8 @@ public class DatabaseHelper {
     }
 
     public static SqlExecutionResult executeSql(String sql, List<Object> params) {
+        if (params == null) params = Collections.emptyList();
+            // LLM may assume it is null-safe when only providing SqlApi.java, so we add this line.
         if (currentDbUrl == null) {
             return SqlExecutionResult.error("Database not initialized. Call initialize() first.");
         }

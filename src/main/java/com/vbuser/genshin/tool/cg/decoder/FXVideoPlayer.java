@@ -1,4 +1,4 @@
-package com.vbuser.genshin.tool.cv.decoder;
+package com.vbuser.genshin.tool.cg.decoder;
 import javafx.application.Platform;
 import javafx.scene.Group;
 import javafx.scene.Scene;

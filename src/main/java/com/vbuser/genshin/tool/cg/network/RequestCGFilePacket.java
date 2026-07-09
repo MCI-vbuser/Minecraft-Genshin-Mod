@@ -1,22 +1,27 @@
-package com.vbuser.genshin.tool.cv.network;
+package com.vbuser.genshin.tool.cg.network;
 
-import com.vbuser.genshin.tool.cv.decoder.VideoPlaybackManager;
+import com.vbuser.genshin.tool.cg.server.CGFileServerHandler;
 import com.vbuser.genshin.tool.network.ModPacket;
+import com.vbuser.genshin.tool.network.NetworkManager;
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 import java.nio.charset.StandardCharsets;
 
-public class PlayCGPacket extends ModPacket {
+public class RequestCGFilePacket extends ModPacket {
     private String fileName;
 
     @SuppressWarnings("unused")
-    public PlayCGPacket() {}
-    public PlayCGPacket(String fileName) {
+    public RequestCGFilePacket() {}
+    public RequestCGFilePacket(String fileName) {
         this.fileName = fileName;
+    }
+
+    @SideOnly(Side.CLIENT)
+    public static void send(String fileName) {
+        NetworkManager.sendToServer(new RequestCGFilePacket(fileName));
     }
 
     @Override
@@ -35,8 +40,9 @@ public class PlayCGPacket extends ModPacket {
     }
 
     @Override
-    @SideOnly(Side.CLIENT)
     public void handle(MessageContext ctx) {
-        Minecraft.getMinecraft().addScheduledTask(() -> VideoPlaybackManager.getInstance().playVideo(fileName));
+        if (ctx.side.isServer()) {
+            CGFileServerHandler.handleRequest(ctx.getServerHandler().player, fileName);
+        }
     }
 }

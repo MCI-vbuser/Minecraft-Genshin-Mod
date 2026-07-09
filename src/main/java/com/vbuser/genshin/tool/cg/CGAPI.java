@@ -1,8 +1,8 @@
-package com.vbuser.genshin.tool.cv;
+package com.vbuser.genshin.tool.cg;
 
-import com.vbuser.genshin.tool.cv.decoder.VideoPlaybackManager;
-import com.vbuser.genshin.tool.cv.network.PlayCGPacket;
-import com.vbuser.genshin.tool.cv.network.StopCGPacket;
+import com.vbuser.genshin.tool.cg.decoder.VideoPlaybackManager;
+import com.vbuser.genshin.tool.cg.network.PlayCGPacket;
+import com.vbuser.genshin.tool.cg.network.StopCGPacket;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.fml.common.FMLCommonHandler;
