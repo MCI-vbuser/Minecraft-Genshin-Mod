@@ -1,5 +1,8 @@
 package com.vbuser.genshin;
 
+import com.vbuser.genshin.client.renderer.CloudRenderer;
+import com.vbuser.genshin.command.CommandCloudFill;
+import com.vbuser.genshin.proxy.CommonProxy;
 import com.vbuser.genshin.tool.al.event.BGMClientEventHandler;
 import com.vbuser.genshin.tool.al.command.CommandBGM;
 import com.vbuser.genshin.tool.cg.decoder.FXVideoPlayer;
@@ -13,6 +16,7 @@ import com.vbuser.genshin.tool.network.example.ClientEventHandler;
 import com.vbuser.genshin.tool.network.example.ServerEventHandler;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
@@ -20,6 +24,10 @@ import org.spongepowered.asm.launch.MixinBootstrap;
 
 @Mod(modid = "genshin", name = "Minecraft Genshin Mod", version = "basic 1.14")
 public class Main {
+
+    @SidedProxy(clientSide = "com.vbuser.genshin.proxy.ClientProxy", serverSide = "com.vbuser.genshin.proxy.CommonProxy")
+
+    public static CommonProxy proxy;
 
     @Mod.Instance
     public static Main instance;
@@ -50,6 +58,7 @@ public class Main {
         MinecraftForge.EVENT_BUS.register(new PlayerEventHandler());
         // Register Stopper for sideload bgm system.
         MinecraftForge.EVENT_BUS.register(new BGMClientEventHandler());
+        MinecraftForge.EVENT_BUS.register(new CloudRenderer());
     }
 
     @Mod.EventHandler
@@ -57,6 +66,7 @@ public class Main {
         event.registerServerCommand(new CommandBGM());
         event.registerServerCommand(new CommandCG());
         event.registerServerCommand(new UpdateCommand());
+        event.registerServerCommand(new CommandCloudFill());
     }
 
 }

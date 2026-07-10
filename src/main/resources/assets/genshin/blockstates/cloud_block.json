@@ -1,0 +1,20 @@
+{
+  "variants": {
+    "density=0": { "model": "genshin:cloud_block_0" },
+    "density=1": { "model": "genshin:cloud_block_1" },
+    "density=2": { "model": "genshin:cloud_block_2" },
+    "density=3": { "model": "genshin:cloud_block_3" },
+    "density=4": { "model": "genshin:cloud_block_4" },
+    "density=5": { "model": "genshin:cloud_block_5" },
+    "density=6": { "model": "genshin:cloud_block_6" },
+    "density=7": { "model": "genshin:cloud_block_7" },
+    "density=8": { "model": "genshin:cloud_block_8" },
+    "density=9": { "model": "genshin:cloud_block_9" },
+    "density=10": { "model": "genshin:cloud_block_10" },
+    "density=11": { "model": "genshin:cloud_block_11" },
+    "density=12": { "model": "genshin:cloud_block_12" },
+    "density=13": { "model": "genshin:cloud_block_13" },
+    "density=14": { "model": "genshin:cloud_block_14" },
+    "density=15": { "model": "genshin:cloud_block_15" }
+  }
+}
