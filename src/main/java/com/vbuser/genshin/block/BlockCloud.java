@@ -1,5 +1,6 @@
 package com.vbuser.genshin.block;
 
+import com.vbuser.genshin.client.renderer.CloudVolumeTracker;
 import com.vbuser.genshin.math.PerlinNoise;
 import com.vbuser.genshin.util.IHasModel;
 import net.minecraft.block.SoundType;
@@ -12,6 +13,7 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.IBlockAccess;
+import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
@@ -75,22 +77,38 @@ public class BlockCloud extends BlockBase implements IHasModel {
     @Override
     @SideOnly(Side.CLIENT)
     public boolean shouldSideBeRendered(IBlockState blockState, IBlockAccess blockAccess, BlockPos pos, EnumFacing side) {
-        IBlockState adjacentState = blockAccess.getBlockState(pos.offset(side));
-        int thisDensity = blockState.getValue(DENSITY);
+        return false;
+    }
 
-        if (adjacentState.getBlock().isAir(adjacentState, blockAccess, pos.offset(side))) {
-            return true;
+    @Override
+    public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
+        if (worldIn.isRemote) {
+            CloudVolumeTracker.addCloud(worldIn.provider.getDimension(), pos, state.getValue(DENSITY));
         }
+        super.onBlockAdded(worldIn, pos, state);
+    }
 
-        if (adjacentState.getBlock() instanceof BlockCloud) {
-            int adjacentDensity = adjacentState.getValue(DENSITY);
-            if (adjacentDensity >= thisDensity) {
-                return false;
-            }
-            return true;
+    @Override
+    public void breakBlock(World worldIn, BlockPos pos, IBlockState state) {
+        if (worldIn.isRemote) {
+            CloudVolumeTracker.removeCloud(worldIn.provider.getDimension(), pos);
         }
+        super.breakBlock(worldIn, pos, state);
+    }
 
-        return super.shouldSideBeRendered(blockState, blockAccess, pos, side);
+    @Override
+    public AxisAlignedBB getBoundingBox(IBlockState state, IBlockAccess source, BlockPos pos) {
+        return NULL_AABB;
+    }
+
+    @Override
+    public boolean canCollideCheck(IBlockState state, boolean hitIfLiquid) {
+        return false;
+    }
+
+    @Override
+    public boolean isCollidable() {
+        return false;
     }
 
     private static float fbm(float x, float y, float z, int octaves, float lacunarity, float gain) {
@@ -148,10 +166,4 @@ public class BlockCloud extends BlockBase implements IHasModel {
         return mapped;
     }
 
-    @Override
-    @SideOnly(Side.CLIENT)
-    public float getAmbientOcclusionLightValue(IBlockState state) {
-        int density = state.getValue(DENSITY);
-        return 1.0f - (density / 15.0f) * 0.3f;
-    }
 }

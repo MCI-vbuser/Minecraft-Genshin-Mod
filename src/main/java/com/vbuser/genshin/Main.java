@@ -1,7 +1,8 @@
 package com.vbuser.genshin;
 
-import com.vbuser.genshin.client.renderer.CloudRenderer;
+import com.vbuser.genshin.client.renderer.CloudVolumeRenderer;
 import com.vbuser.genshin.command.CommandCloudFill;
+import com.vbuser.genshin.debug.CameraPos;
 import com.vbuser.genshin.proxy.CommonProxy;
 import com.vbuser.genshin.tool.al.event.BGMClientEventHandler;
 import com.vbuser.genshin.tool.al.command.CommandBGM;
@@ -58,7 +59,10 @@ public class Main {
         MinecraftForge.EVENT_BUS.register(new PlayerEventHandler());
         // Register Stopper for sideload bgm system.
         MinecraftForge.EVENT_BUS.register(new BGMClientEventHandler());
-        MinecraftForge.EVENT_BUS.register(new CloudRenderer());
+        // Register Camera Position Tracker.
+        MinecraftForge.EVENT_BUS.register(new CameraPos());
+
+        MinecraftForge.EVENT_BUS.register(new CloudVolumeRenderer());
     }
 
     @Mod.EventHandler

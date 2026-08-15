@@ -7,6 +7,7 @@ import net.minecraft.client.resources.I18n;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
+import net.minecraft.init.Blocks;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentString;
@@ -55,10 +56,59 @@ public class CommandCloudFill extends CommandBase {
         }
 
         World world = sender.getEntityWorld();
-        final long finalNoiseSeed = noiseSeed;
         final int minY = min.getY();
         final int maxY = max.getY();
 
+        if (baseDensity == 0) {
+            CompletableFuture.runAsync(() -> {
+                int totalBlocks = (max.getX() - min.getX() + 1) *
+                        (max.getY() - min.getY() + 1) *
+                        (max.getZ() - min.getZ() + 1);
+                int processedBlocks = 0;
+                int lastReportedProgress = 0;
+
+                IBlockState airState = Blocks.AIR.getDefaultState();
+
+                for (int x = min.getX(); x <= max.getX(); x++) {
+                    for (int z = min.getZ(); z <= max.getZ(); z++) {
+                        for (int y = min.getY(); y <= max.getY(); y++) {
+                            final int finalX = x;
+                            final int finalY = y;
+                            final int finalZ = z;
+                            server.addScheduledTask(() ->
+                                    world.setBlockState(new BlockPos(finalX, finalY, finalZ), airState, 2));
+
+                            processedBlocks++;
+                            int progress = (int) ((float) processedBlocks / totalBlocks * 100);
+                            if (progress > lastReportedProgress && progress % 5 == 0) {
+                                lastReportedProgress = progress;
+                                final int finalProgress = progress;
+                                int finalProcessedBlocks = processedBlocks;
+                                server.addScheduledTask(() -> sender.sendMessage(new TextComponentString(
+                                        I18n.format("commands.cf.process") + ": " + finalProgress + "% (" + finalProcessedBlocks + "/" + totalBlocks + ")"
+                                )));
+                            }
+
+                            if (processedBlocks % 1000 == 0) {
+                                try {
+                                    Thread.sleep(10);
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                int finalProcessedBlocks = processedBlocks;
+                server.addScheduledTask(() ->
+                        sender.sendMessage(new TextComponentString(I18n.format("commands.cf.result") + finalProcessedBlocks)));
+            });
+            return;
+        }
+
+        final long finalNoiseSeed = noiseSeed;
         CompletableFuture.runAsync(() -> {
             int totalBlocks = (max.getX() - min.getX() + 1) *
                     (max.getY() - min.getY() + 1) *
@@ -113,9 +163,7 @@ public class CommandCloudFill extends CommandBase {
             }
 
             int finalProcessedBlocks1 = processedBlocks;
-            server.addScheduledTask(() -> {
-                sender.sendMessage(new TextComponentString(I18n.format("commands.cf.result") + finalProcessedBlocks1));
-            });
+            server.addScheduledTask(() -> sender.sendMessage(new TextComponentString(I18n.format("commands.cf.result") + finalProcessedBlocks1)));
         });
     }
 
