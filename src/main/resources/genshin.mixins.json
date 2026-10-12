@@ -3,6 +3,12 @@
   "package": "com.vbuser.mixin",
   "refmap": "refmap.genshin.json",
   "mixins": [
+    "MixinAnvilChunkLoader",
+    "MixinChunk",
+    "MixinCommandBase",
+    "MixinMinecraftServer",
+    "MixinPlayerChunkMapEntry",
+    "MixinWorld"
   ],
   "client": [
     "MixinEntityPlayerSP",
