@@ -4,15 +4,21 @@
   "refmap": "refmap.genshin.json",
   "mixins": [
     "MixinAnvilChunkLoader",
+    "MixinBiome",
+    "MixinBlockPistonBase",
     "MixinChunk",
     "MixinCommandBase",
+    "MixinCommandTeleport",
+    "MixinCommandTP",
     "MixinMinecraftServer",
+    "MixinPacketBuffer",
     "MixinPlayerChunkMapEntry",
     "MixinWorld"
   ],
   "client": [
     "MixinEntityPlayerSP",
-    "MixinMinecraft"
+    "MixinMinecraft",
+    "MixinRenderGlobal"
   ],
   "server": []
 }

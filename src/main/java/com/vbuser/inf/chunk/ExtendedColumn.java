@@ -4,6 +4,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockLiquid;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
@@ -63,6 +64,24 @@ public class ExtendedColumn {
         if (!world.isRemote) {
             if (oldBlock != newBlock) {
                 oldBlock.breakBlock(world, pos, oldState);
+
+                if (oldBlock.hasTileEntity(oldState) && !newBlock.hasTileEntity(newState)) {
+                    world.removeTileEntity(pos);
+                }
+
+                if (newBlock.hasTileEntity(newState)) {
+                    TileEntity existing = world.getTileEntity(pos);
+                    if (existing == null || existing.getBlockType() != newBlock) {
+                        if (existing != null) {
+                            existing.invalidate();
+                        }
+                        TileEntity te = newBlock.createTileEntity(world, newState);
+                        if (te != null) {
+                            world.setTileEntity(pos, te);
+                        }
+                    }
+                }
+
                 if (!world.captureBlockSnapshots || newBlock.hasTileEntity(newState)) {
                     newBlock.onBlockAdded(world, pos, newState);
                 }
