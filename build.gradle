@@ -1,13 +1,24 @@
 buildscript {
     repositories {
+        maven { name = 'AliyunPublic'; url = 'https://maven.aliyun.com/repository/public/' }
+        maven { name = 'AliyunCentral'; url = 'https://maven.aliyun.com/repository/central' }
+        maven { name = 'HuaweiCloud'; url = 'https://repo.huaweicloud.com/repository/maven/' }
+        maven { name = 'Forge'; url = 'https://files.minecraftforge.net/maven' }
+        maven { name = 'Sponge'; url = 'https://repo.spongepowered.org/maven' }
         mavenCentral()
-        maven { url = 'https://maven.aliyun.com/repository/public/' }
-        maven { url = 'https://maven.aliyun.com/repository/central' }
-        maven { url = 'https://files.minecraftforge.net/maven' }
-        maven { url = 'https://repo.spongepowered.org/maven' }
     }
+
+    configurations {
+        classpath {
+            resolutionStrategy {
+                force 'net.minecraftforge:artifactural:1.0.13'
+                cacheChangingModulesFor 365, 'days'
+            }
+        }
+    }
+
     dependencies {
-        classpath 'net.minecraftforge.gradle:ForgeGradle:3.+'
+        classpath 'net.minecraftforge.gradle:ForgeGradle:3.0.197'
         classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
     }
 }
@@ -16,6 +27,13 @@ apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'eclipse'
 apply plugin: 'maven-publish'
 apply plugin: 'org.spongepowered.mixin'
+
+configurations.all {
+    resolutionStrategy {
+        cacheChangingModulesFor 365, 'days'
+        cacheDynamicVersionsFor 365, 'days'
+    }
+}
 
 mixin {
     add sourceSets.main, 'refmap.genshin.json'
@@ -48,12 +66,22 @@ minecraft {
 }
 
 repositories {
+    maven { name = 'AliyunPublic'; url = 'https://maven.aliyun.com/repository/public/' }
+    maven { name = 'AliyunCentral'; url = 'https://maven.aliyun.com/repository/central' }
+    maven { name = 'HuaweiCloud'; url = 'https://repo.huaweicloud.com/repository/maven/' }
+    maven { name = 'Forge'; url = 'https://files.minecraftforge.net/maven' }
+    maven { name = 'GeckoLib'; url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven' }
+    maven { name = 'Sponge'; url = 'https://repo.spongepowered.org/maven' }
     mavenCentral()
-    maven { url = 'https://maven.aliyun.com/repository/public/' }
-    maven { url = 'https://maven.aliyun.com/repository/central' }
-    maven { url = 'https://files.minecraftforge.net/maven' }
-    maven { url = 'https://dl.cloudsmith.io/public/geckolib3/geckolib/maven' }
-    maven { url = 'https://repo.spongepowered.org/maven' }
+}
+
+tasks.matching { it.name == 'downloadMcpConfig' }.all { t ->
+    t.onlyIf {
+        def out = null
+        try { out = t.output } catch (Exception ignored) { }
+        if (out == null) { out = new File(project.buildDir, 'downloadMcpConfig/output.zip') }
+        !new File(out.toString()).exists()
+    }
 }
 
 configurations {

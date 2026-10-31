@@ -131,39 +131,28 @@ public class BlockCloud extends BlockBase implements IHasModel {
         float offsetY = rand.nextFloat() * 10000;
         float offsetZ = rand.nextFloat() * 10000;
 
-        float mainNoise = fbm(
-                (x + offsetX) * 0.06f,
-                (y + offsetY) * 0.02f,
-                (z + offsetZ) * 0.06f,
-                4,
-                2.0f,
-                0.5f
-        );
+        float nx = (x + offsetX) * 0.04f;
+        float ny = (y + offsetY) * 0.05f;
+        float nz = (z + offsetZ) * 0.04f;
 
-        float detail = PerlinNoise.noise3d(
-                (x + offsetX) * 0.3f,
-                (y + offsetY) * 0.1f,
-                (z + offsetZ) * 0.3f
-        ) * 0.3f;
+        float wx = fbm(nx * 2.0f, ny * 2.0f, nz * 2.0f, 2, 2.0f, 0.5f) * 12.0f;
+        float wy = fbm(nx * 2.0f + 100, ny * 2.0f, nz * 2.0f, 2, 2.0f, 0.5f) * 12.0f;
+        float wz = fbm(nx * 2.0f, ny * 2.0f, nz * 2.0f + 100, 2, 2.0f, 0.5f) * 12.0f;
 
-        float noise = mainNoise + detail;
-        noise = (noise + 1.0f) * 0.5f;
-        noise = Math.max(0, Math.min(1, noise));
+        float n = fbm(nx + wx * 0.05f, ny + wy * 0.05f, nz + wz * 0.05f, 4, 2.0f, 0.5f);
+        n = (n + 1.0f) * 0.5f;
 
-        float mid = (minY + maxY) * 0.5f;
-        float halfRange = (maxY - minY) * 0.5f;
-        float heightFactor = (float) Math.exp(-Math.pow((y - mid) / (halfRange * 0.6f), 2));
+        float yRatio = (float)(y - minY) / Math.max(1.0f, (maxY - minY));
+        float heightFactor = 1.0f - (float)Math.pow(Math.abs(yRatio * 2.0f - 1.0f), 3.0f);
 
-        float weighted = noise * heightFactor;
+        float weighted = n * heightFactor;
 
-        float threshold = 0.25f;
+        float threshold = 0.4f;
         if (weighted < threshold) {
             return 0.0f;
         }
-        float mapped = (weighted - threshold) / (1.0f - threshold);
-        mapped = mapped * mapped * (3 - 2 * mapped);
-        mapped = (float) Math.pow(mapped, 0.8f);
-        return mapped;
-    }
 
+        float mapped = (weighted - threshold) / (1.0f - threshold);
+        return mapped * mapped * (3 - 2 * mapped);
+    }
 }
