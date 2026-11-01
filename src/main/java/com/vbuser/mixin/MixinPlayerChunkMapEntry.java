@@ -10,7 +10,6 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.init.Blocks;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.play.server.SPacketBlockChange;
-import net.minecraft.network.play.server.SPacketUpdateTileEntity;
 import net.minecraft.server.management.PlayerChunkMapEntry;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
@@ -19,6 +18,7 @@ import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -56,12 +56,14 @@ public abstract class MixinPlayerChunkMapEntry {
         inf$sendExtendedBlocksTo(player);
     }
 
+    @Unique
     private void inf$sendExtendedBlocksTo(EntityPlayerMP player) {
         ExtendedColumn col = ColumnManager.getIfPresent(this.chunk);
         if (col == null || col.isEmpty()) {
             return;
         }
 
+        assert this.chunk != null;
         int baseX = this.chunk.x << 4;
         int baseZ = this.chunk.z << 4;
 

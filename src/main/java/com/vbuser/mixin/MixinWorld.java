@@ -82,8 +82,10 @@ public abstract class MixinWorld {
         }
     }
 
-    @Shadow @Final private List<TileEntity> tickableTileEntities;
-    @Shadow @Final private List<TileEntity> loadedTileEntityList;
+    @Shadow @Final
+    public List<TileEntity> tickableTileEntities;
+    @Shadow @Final
+    public List<TileEntity> loadedTileEntityList;
 
     @Inject(
             method = "setTileEntity(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/tileentity/TileEntity;)V",
@@ -125,6 +127,7 @@ public abstract class MixinWorld {
 
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
+        assert ws.getMinecraftServer() != null;
         int viewDist = ws.getMinecraftServer().getPlayerList().getViewDistance() + 1;
 
         SPacketExtendedTileEntity packet = new SPacketExtendedTileEntity(pos, nbt);
@@ -218,6 +221,7 @@ public abstract class MixinWorld {
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
 
+        assert ws.getMinecraftServer() != null;
         int viewDist = ws.getMinecraftServer().getPlayerList().getViewDistance() + 1;
 
         List<EntityPlayerMP> watchers = new ArrayList<>();

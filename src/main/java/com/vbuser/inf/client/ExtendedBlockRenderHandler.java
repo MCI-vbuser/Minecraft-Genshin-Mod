@@ -13,6 +13,7 @@ import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.Entity;
 import net.minecraft.init.Blocks;
+import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
@@ -24,6 +25,8 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.opengl.GL11;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @SideOnly(Side.CLIENT)
@@ -51,19 +54,9 @@ public class ExtendedBlockRenderHandler {
         int maxCZ = view.chunkCoordZ + CHUNK_RADIUS;
 
         BlockRendererDispatcher dispatcher = mc.getBlockRendererDispatcher();
-        BufferBuilder buf = Tessellator.getInstance().getBuffer();
 
-        GlStateManager.pushMatrix();
-        GlStateManager.translate(-vx, -vy, -vz);
-        GlStateManager.disableLighting();
-        GlStateManager.enableTexture2D();
-        GlStateManager.enableCull();
-        GlStateManager.enableAlpha();
-        GlStateManager.disableBlend();
-        GlStateManager.color(1f, 1f, 1f, 1f);
-        mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
-
-        buf.begin(GL11.GL_QUADS, DefaultVertexFormats.BLOCK);
+        List<RenderUnit> opaque = new ArrayList<>();
+        List<RenderUnit> translucent = new ArrayList<>();
 
         for (int cx = minCX; cx <= maxCX; cx++) {
             for (int cz = minCZ; cz <= maxCZ; cz++) {
@@ -93,13 +86,17 @@ public class ExtendedBlockRenderHandler {
                                 double dx = wx + 0.5 - vx;
                                 double dy = wy + 0.5 - vy;
                                 double dz = wz + 0.5 - vz;
-                                if (dx * dx + dy * dy + dz * dz > MAX_DIST_SQ) continue;
+                                double distSq = dx * dx + dy * dy + dz * dz;
+                                if (distSq > MAX_DIST_SQ) continue;
 
                                 BlockPos pos = new BlockPos(wx, wy, wz);
-                                try {
-                                    dispatcher.renderBlock(state, pos, world, buf);
-                                } catch (Throwable ignored) {
+                                BlockRenderLayer layer = state.getBlock().getBlockLayer();
+                                RenderUnit unit = new RenderUnit(state, pos, distSq);
 
+                                if (layer == BlockRenderLayer.TRANSLUCENT) {
+                                    translucent.add(unit);
+                                } else {
+                                    opaque.add(unit);
                                 }
                             }
                         }
@@ -108,7 +105,80 @@ public class ExtendedBlockRenderHandler {
             }
         }
 
-        Tessellator.getInstance().draw();
+        if (opaque.isEmpty() && translucent.isEmpty()) return;
+
+        translucent.sort((a, b) -> Double.compare(b.distSq, a.distSq));
+
+        Tessellator tess = Tessellator.getInstance();
+        BufferBuilder buf = tess.getBuffer();
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(-vx, -vy, -vz);
+
+        mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
+        mc.entityRenderer.enableLightmap();
+
+        if (!opaque.isEmpty()) {
+            GlStateManager.disableLighting();
+            GlStateManager.enableTexture2D();
+            GlStateManager.enableAlpha();
+            GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
+            GlStateManager.disableBlend();
+            GlStateManager.enableCull();
+            GlStateManager.depthMask(true);
+            GlStateManager.color(1f, 1f, 1f, 1f);
+
+            buf.begin(GL11.GL_QUADS, DefaultVertexFormats.BLOCK);
+            for (RenderUnit u : opaque) {
+                try {
+                    dispatcher.renderBlock(u.state, u.pos, world, buf);
+                } catch (Throwable ignored) {
+                }
+            }
+            tess.draw();
+        }
+
+        if (!translucent.isEmpty()) {
+            GlStateManager.disableLighting();
+            GlStateManager.enableTexture2D();
+            GlStateManager.disableAlpha();
+            GlStateManager.enableBlend();
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO);
+            GlStateManager.depthMask(false);
+            GlStateManager.enableCull();
+            GlStateManager.color(1f, 1f, 1f, 1f);
+
+            buf.begin(GL11.GL_QUADS, DefaultVertexFormats.BLOCK);
+            for (RenderUnit u : translucent) {
+                try {
+                    dispatcher.renderBlock(u.state, u.pos, world, buf);
+                } catch (Throwable ignored) {
+                }
+            }
+            tess.draw();
+
+            GlStateManager.depthMask(true);
+            GlStateManager.disableBlend();
+            GlStateManager.enableAlpha();
+        }
+
+        mc.entityRenderer.disableLightmap();
         GlStateManager.popMatrix();
+    }
+
+    private static final class RenderUnit {
+        final IBlockState state;
+        final BlockPos pos;
+        final double distSq;
+
+        RenderUnit(IBlockState state, BlockPos pos, double distSq) {
+            this.state = state;
+            this.pos = pos;
+            this.distSq = distSq;
+        }
     }
 }

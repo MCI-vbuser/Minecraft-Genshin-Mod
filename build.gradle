@@ -8,18 +8,19 @@ buildscript {
         mavenCentral()
     }
 
-    configurations {
-        classpath {
-            resolutionStrategy {
-                force 'net.minecraftforge:artifactural:1.0.13'
-                cacheChangingModulesFor 365, 'days'
-            }
+    configurations.all {
+        resolutionStrategy {
+            cacheChangingModulesFor 365, 'days'
+            cacheDynamicVersionsFor 365, 'days'
         }
     }
 
     dependencies {
-        classpath 'net.minecraftforge.gradle:ForgeGradle:3.0.197'
-        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+        classpath('net.minecraftforge.gradle:ForgeGradle:3.0.197') {
+            exclude group: 'net.minecraftforge', module: 'artifactural'
+        }
+        classpath 'net.minecraftforge:artifactural:1.0.13'
+        classpath('org.spongepowered:mixingradle:0.7-SNAPSHOT') { changing = false }
     }
 }
 
@@ -96,6 +97,7 @@ dependencies {
     implementation fg.deobf('software.bernie.geckolib:forge-1.12.2-geckolib:3.0.21')
     embed 'com.h2database:h2:2.1.214'
     embed('org.spongepowered:mixin:0.8.3-SNAPSHOT') {
+        changing = false
         exclude module: 'guava'
         exclude module: 'commons-io'
         exclude module: 'gson'

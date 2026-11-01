@@ -1,5 +1,6 @@
 package com.vbuser.mixin;
 
+import com.vbuser.inf.HeightConstants;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.biome.Biome;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,15 +17,10 @@ public abstract class MixinBiome {
             cancellable = true
     )
     private void inf$sanitizeTemperature(BlockPos pos, CallbackInfoReturnable<Float> cir) {
-        float t = cir.getReturnValue();
-        if (Float.isNaN(t) || Float.isInfinite(t)) {
-            cir.setReturnValue(0.5F);
-            return;
-        }
-        if (t < -0.5F) {
-            cir.setReturnValue(-0.5F);
-        } else if (t > 2.0F) {
-            cir.setReturnValue(2.0F);
+        if (HeightConstants.isExtendedY(pos.getY())) {
+            float t = ((Biome)(Object)this).getDefaultTemperature();
+            if (Float.isNaN(t) || Float.isInfinite(t)) t = 0.5F;
+            cir.setReturnValue(t);
         }
     }
 }

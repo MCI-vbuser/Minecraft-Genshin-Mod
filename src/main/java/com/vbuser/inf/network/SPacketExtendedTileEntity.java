@@ -23,13 +23,18 @@ public class SPacketExtendedTileEntity implements IMessage {
 
     @Override
     public void fromBytes(ByteBuf buf) {
-        this.pos = BlockPos.fromLong(buf.readLong());
+        int x = buf.readInt();
+        int y = buf.readInt();
+        int z = buf.readInt();
+        this.pos = new BlockPos(x, y, z);
         this.nbt = ByteBufUtils.readTag(buf);
     }
 
     @Override
     public void toBytes(ByteBuf buf) {
-        buf.writeLong(this.pos.toLong());
+        buf.writeInt(this.pos.getX());
+        buf.writeInt(this.pos.getY());
+        buf.writeInt(this.pos.getZ());
         ByteBufUtils.writeTag(buf, this.nbt);
     }
 }

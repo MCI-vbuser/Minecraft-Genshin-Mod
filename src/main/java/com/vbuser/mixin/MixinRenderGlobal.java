@@ -22,10 +22,10 @@ public class MixinRenderGlobal {
                                           TileEntity te,
                                           float partialTicks,
                                           int destroyStage) {
-        if (te != null && te.getPos() != null
-                && HeightConstants.isExtendedY(te.getPos().getY())) {
+        if (te != null && HeightConstants.isExtendedY(te.getPos().getY())) {
             return;
         }
+        assert te != null;
         dispatcher.render(te, partialTicks, destroyStage);
     }
 }

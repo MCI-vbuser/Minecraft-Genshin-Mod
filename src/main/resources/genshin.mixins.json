@@ -5,6 +5,7 @@
   "mixins": [
     "MixinAnvilChunkLoader",
     "MixinBiome",
+    "MixinBlockDoor",
     "MixinBlockPistonBase",
     "MixinChunk",
     "MixinCommandBase",
