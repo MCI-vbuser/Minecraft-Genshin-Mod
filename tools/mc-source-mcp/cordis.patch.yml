@@ -1,0 +1,26 @@
+- insert:
+    - id: mc-source-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: mc
+        transport: stdio
+        command: node
+        args:
+          - 'C:/Users/ASUS/Desktop/mdk/tools/mc-source-mcp/server.js'
+        env:
+          MC_SOURCES_JAR: 'C:/Users/ASUS/.gradle/caches/forge_gradle/minecraft_user_repo/net/minecraftforge/forge/1.12.2-14.23.5.2854_mapped_snapshot_20171003-1.12/forge-1.12.2-14.23.5.2854_mapped_snapshot_20171003-1.12-sources.jar'
+        failOnStartupError: true
+        toolCallTimeoutMs: 120000
+    - id: idea-bridge
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: idea
+        transport: stdio
+        command: node
+        args:
+          - 'C:/Users/ASUS/Desktop/mdk/tools/mc-source-mcp/idea-bridge.js'
+        env:
+          IDEA_MCP_URL: 'http://127.0.0.1:64342/stream'
+          IDEA_PROJECT_PATH: 'C:/Users/ASUS/Desktop/mdk'
+        failOnStartupError: true
+        toolCallTimeoutMs: 300000

@@ -1,6 +1,8 @@
 package com.vbuser.inf;
 
 import net.minecraftforge.fml.common.Mod;
+import com.vbuser.inf.network.SPacketExtendedSection;
+import com.vbuser.inf.network.SPacketExtendedSectionHandler;
 import com.vbuser.inf.network.SPacketExtendedTileEntity;
 import com.vbuser.inf.network.SPacketExtendedTileEntityHandler;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
@@ -28,5 +30,9 @@ public class InfiniteHeight {
                 SPacketExtendedTileEntityHandler.class,
                 SPacketExtendedTileEntity.class,
                 0, Side.CLIENT);
+        NETWORK.registerMessage(
+                SPacketExtendedSectionHandler.class,
+                SPacketExtendedSection.class,
+                1, Side.CLIENT);
     }
 }

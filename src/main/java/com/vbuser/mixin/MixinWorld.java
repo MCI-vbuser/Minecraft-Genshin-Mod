@@ -2,6 +2,8 @@ package com.vbuser.mixin;
 
 import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.InfiniteHeight;
+import com.vbuser.inf.chunk.ColumnManager;
+import com.vbuser.inf.chunk.ExtendedColumn;
 import com.vbuser.inf.network.SPacketExtendedTileEntity;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEventData;
@@ -11,17 +13,18 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.play.server.SPacketBlockChange;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
-import org.spongepowered.asm.mixin.Final;
+import net.minecraft.world.chunk.Chunk;
+import net.minecraft.world.chunk.EmptyChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -82,10 +85,35 @@ public abstract class MixinWorld {
         }
     }
 
-    @Shadow @Final
-    public List<TileEntity> tickableTileEntities;
-    @Shadow @Final
-    public List<TileEntity> loadedTileEntityList;
+    /**
+     * Route World.setBlockState's chunk write through the extended column while
+     * preserving the caller's flags. World.setBlockState itself then performs
+     * light checks and {@code markAndNotifyBlock} exactly as for vanilla blocks.
+     */
+    @Redirect(
+            method = "setBlockState(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/state/IBlockState;I)Z",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/world/chunk/Chunk;setBlockState(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/block/state/IBlockState;"
+            )
+    )
+    private IBlockState inf$setExtendedBlockState(Chunk chunk, BlockPos chunkPos, IBlockState chunkState,
+                                                  BlockPos pos, IBlockState newState, int flags) {
+        if (!HeightConstants.isExtendedY(chunkPos.getY()) || chunk instanceof EmptyChunk) {
+            return chunk.setBlockState(chunkPos, chunkState);
+        }
+
+        ExtendedColumn column = ColumnManager.get(chunk);
+        IBlockState oldState = column.setBlock(
+                (World) (Object) this,
+                chunkPos.getX(), chunkPos.getY(), chunkPos.getZ(),
+                chunkState, flags);
+
+        if (oldState != null) {
+            chunk.markDirty();
+        }
+        return oldState;
+    }
 
     @Inject(
             method = "setTileEntity(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/tileentity/TileEntity;)V",
@@ -108,17 +136,16 @@ public abstract class MixinWorld {
             te.setPos(pos);
         }
 
-        if (te instanceof ITickable && !this.tickableTileEntities.contains(te)) {
-            this.tickableTileEntities.add(te);
-        }
-        if (!this.loadedTileEntityList.contains(te)) {
-            this.loadedTileEntityList.add(te);
-        }
-
         if (!(self instanceof WorldServer)) {
             return;
         }
         WorldServer ws = (WorldServer) self;
+
+        Chunk chunk = ws.getChunkFromBlockCoords(pos);
+        if (chunk == null || !chunk.isPopulated()) {
+            // The chunk send path will include the tile entity.
+            return;
+        }
 
         NBTTagCompound nbt = te.getUpdateTag();
         if (nbt == null) {
@@ -155,25 +182,6 @@ public abstract class MixinWorld {
             cir.setReturnValue(
                     this.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4, allowEmpty));
         }
-    }
-
-    @Inject(
-            method = "getTileEntity(Lnet/minecraft/util/math/BlockPos;)Lnet/minecraft/tileentity/TileEntity;",
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void inf$getTileEntity(BlockPos pos, CallbackInfoReturnable<TileEntity> cir) {
-        if (!HeightConstants.isExtendedY(pos.getY())) {
-            return;
-        }
-        World self = (World) (Object) this;
-        for (TileEntity te : self.loadedTileEntityList) {
-            if (!te.isInvalid() && pos.equals(te.getPos())) {
-                cir.setReturnValue(te);
-                return;
-            }
-        }
-        cir.setReturnValue(null);
     }
 
     @Shadow
@@ -217,6 +225,12 @@ public abstract class MixinWorld {
             return;
         }
 
+        Chunk chunk = self.getChunkFromBlockCoords(pos);
+        if (chunk == null || !chunk.isPopulated()) {
+            ci.cancel();
+            return;
+        }
+
         WorldServer ws = (WorldServer) self;
         int chunkX = pos.getX() >> 4;
         int chunkZ = pos.getZ() >> 4;
@@ -224,7 +238,13 @@ public abstract class MixinWorld {
         assert ws.getMinecraftServer() != null;
         int viewDist = ws.getMinecraftServer().getPlayerList().getViewDistance() + 1;
 
-        List<EntityPlayerMP> watchers = new ArrayList<>();
+        SPacketBlockChange blockPacket = new SPacketBlockChange(self, pos);
+        TileEntity tileEntity = newState.getBlock().hasTileEntity(newState) ? self.getTileEntity(pos) : null;
+        NBTTagCompound updateTag = tileEntity != null ? tileEntity.getUpdateTag() : null;
+        SPacketExtendedTileEntity tilePacket = updateTag != null
+                ? new SPacketExtendedTileEntity(pos, updateTag)
+                : null;
+
         for (EntityPlayer player : ws.playerEntities) {
             if (!(player instanceof EntityPlayerMP)) {
                 continue;
@@ -233,30 +253,9 @@ public abstract class MixinWorld {
             int dx = Math.abs(mp.chunkCoordX - chunkX);
             int dz = Math.abs(mp.chunkCoordZ - chunkZ);
             if (dx <= viewDist && dz <= viewDist) {
-                watchers.add(mp);
-            }
-        }
-
-        if (watchers.isEmpty()) {
-            ci.cancel();
-            return;
-        }
-
-        SPacketBlockChange blockPacket = new SPacketBlockChange(self, pos);
-        for (EntityPlayerMP player : watchers) {
-            player.connection.sendPacket(blockPacket);
-        }
-
-        if (newState.getBlock().hasTileEntity(newState)) {
-            TileEntity te = self.getTileEntity(pos);
-            if (te != null) {
-                NBTTagCompound nbt = te.getUpdateTag();
-                if (nbt != null) {
-                    SPacketExtendedTileEntity tePacket =
-                            new SPacketExtendedTileEntity(pos, nbt);
-                    for (EntityPlayerMP player : watchers) {
-                        InfiniteHeight.NETWORK.sendTo(tePacket, player);
-                    }
+                mp.connection.sendPacket(blockPacket);
+                if (tilePacket != null) {
+                    InfiniteHeight.NETWORK.sendTo(tilePacket, mp);
                 }
             }
         }

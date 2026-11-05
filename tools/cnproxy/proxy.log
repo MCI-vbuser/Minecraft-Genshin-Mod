@@ -1,0 +1,254 @@
+[13:15:48] listening 127.0.0.1:8899  (record)
+[13:15:48] cache     C:\Users\ASUS\Desktop\mdk\tools\cnproxy\cache
+[13:15:57] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:15:58] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:00] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:00] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:00] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:02] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:03] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:03] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:03] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:03] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:04] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:04] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:04] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:05] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:06] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:06] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:06] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:06] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:07] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:07] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:07] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:08] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:09] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:09] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:09] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:10] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:11] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:11] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:11] MISS GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml
+[13:16:11] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:15] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:15] DROP GET https://repo.maven.apache.org/maven2/net/minecraftforge/legacydev/maven-metadata.xml  (upstream unreachable)
+[13:16:15] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:16:17] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:18] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:18] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:16:18] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:16:18] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:20] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:20] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:16:20] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:16:20] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:21] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:21] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:16:21] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:16:24] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:24] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:16:24] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:17:54] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:17:57] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:17:57] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:17:57] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:17:57] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:01] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:02] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:02] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:18:02] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:04] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:05] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:05] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:18:05] MISS GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:07] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:08] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:08] DROP GET https://repo.maven.apache.org/maven2/net/minecraft/client/1.12.2/client-1.12.2.pom  (upstream unreachable)
+[13:18:11] MISS GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:13] SKIP GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:13] MISS GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:18] SKIP GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:18] MISS GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:20] SKIP GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:20] MISS GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:22] SKIP GET https://files.minecraftforge.net/maven/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:30] MISS GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:32] SKIP GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:32] MISS GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:34] SKIP GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:34] MISS GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:36] SKIP GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:36] MISS GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom
+[13:18:40] UPSTREAM FAIL maven.minecraftforge.net : SocketTimeoutException Read timed out
+[13:18:44] SKIP GET https://maven.minecraftforge.net/net/minecraft/client/1.12.2/client-1.12.2.pom  (non-2xx, reset)
+[13:18:44] MISS HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar
+[13:18:45] SKIP HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar  (non-2xx, reset)
+[13:18:45] MISS HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar
+[13:18:46] SKIP HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar  (non-2xx, reset)
+[13:18:46] MISS HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar
+[13:18:47] SKIP HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar  (non-2xx, reset)
+[13:18:47] MISS HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar
+[13:18:48] SKIP HEAD https://libraries.minecraft.net/net/minecraft/client/1.12.2/client-1.12.2-extra.jar  (non-2xx, reset)
+[13:18:48] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:18:48] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:50] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:50] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:18:50] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:18:52] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:53] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:53] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:18:53] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:18:54] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:55] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:55] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:18:55] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:18:57] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:58] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:18:58] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:18:58] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:18:59] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:01] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:01] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:19:01] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:19:03] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:06] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:06] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:19:06] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:19:07] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:08] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:08] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:19:08] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom
+[13:19:10] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:10] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:10] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-library_2.11/1.0.2_mc/scala-continuations-library_2.11-1.0.2_mc.pom  (upstream unreachable)
+[13:19:11] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:11] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:12] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:12] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:12] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:13] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:14] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:14] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:14] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:15] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:16] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:16] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:16] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:17] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:18] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:18] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:18] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:19] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:21] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:21] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:21] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:21] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:22] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:22] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:22] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:23] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:24] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:24] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:24] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom
+[13:19:24] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:24] TUNNEL FAIL piston-meta.mojang.com : Read timed out
+[13:19:25] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:25] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/plugins/scala-continuations-plugin_2.11.1/1.0.2_mc/scala-continuations-plugin_2.11.1-1.0.2_mc.pom  (upstream unreachable)
+[13:19:25] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:27] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:28] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:28] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:28] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:31] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:32] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:32] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:32] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:32] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:33] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:33] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:33] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:34] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:35] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:35] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:35] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:35] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:36] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:36] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:36] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:37] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:38] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:38] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:38] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:41] UPSTREAM FAIL repo.maven.apache.org : SocketTimeoutException Read timed out
+[13:19:43] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:43] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:43] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom
+[13:19:46] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:47] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:47] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-parser-combinators_2.11/1.0.1/scala-parser-combinators_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:47] TUNNEL FAIL piston-meta.mojang.com : Socket closed
+[13:19:47] TUNNEL FAIL piston-meta.mojang.com : Socket closed
+[13:19:47] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:19:48] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:49] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:49] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:49] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:19:51] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:52] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:52] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:52] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:19:53] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:54] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:54] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:54] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:19:54] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:55] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:55] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:55] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:19:58] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:58] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:19:58] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:19:58] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:19:59] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:01] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:01] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:20:02] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:20:03] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:04] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:04] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:20:04] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom
+[13:20:05] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:06] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:06] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-swing_2.11/1.0.1/scala-swing_2.11-1.0.1.pom  (upstream unreachable)
+[13:20:06] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:07] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:08] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:08] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:08] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:10] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:12] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:12] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:12] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:13] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:13] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:13] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:13] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:14] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:15] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:15] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:15] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:16] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:18] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:18] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:18] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:19] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:20] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:20] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:20] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:20] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:21] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:21] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)
+[13:20:21] MISS GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom
+[13:20:22] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:23] UPSTREAM FAIL repo.maven.apache.org : SSLHandshakeException sun.security.validator.ValidatorException: PKIX path building failed: sun.security.provider.certpath.SunCertPathBuilderException: unable to find valid certification path to requested target
+[13:20:23] DROP GET https://repo.maven.apache.org/maven2/org/scala-lang/scala-xml_2.11/1.0.2/scala-xml_2.11-1.0.2.pom  (upstream unreachable)

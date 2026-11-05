@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Minecraft Source Bridge",
+    "description": "Indexes decompiled Forge 1.12.2 Minecraft/Forge sources and gives the model class search, member outlines, and line-accurate reads. Optionally bridges IntelliJ IDEA's MCP server for project-aware code intelligence."
+  }
+}

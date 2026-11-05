@@ -1,0 +1,342 @@
+{
+  "generatedAt": "2026-11-05T04:23:43.268Z",
+  "url": "http://127.0.0.1:64342/stream",
+  "projectPath": "C:/Users/ASUS/Desktop/mdk",
+  "tools": [
+    {
+      "name": "execute_run_configuration",
+      "description": "[IntelliJ IDEA] Run either an existing run configuration by name or a temporary run configuration created from a code location (`filePath` + `line`) in the current project, then wait up to specified timeout for it to finish.\n\nUse this tool with either a configuration name returned by `get_run_configurations`, or with a run point\n(`filePath` + `line`) returned by `get_run_configurations(filePath = ...)`.\n\nOptional launch overrides (`programArguments`, `workingDirectory`, `envs`) are applied only for this run and are not persisted.\nDo not pass these override parameters unless you explicitly need to change the configured launch values for this run.\nMissing/null override parameters keep existing run configuration values unchanged.\nFor string overrides (`programArguments`, `workingDirectory`), missing/null or empty string (`\"\"`) keeps the existing value unchanged.\nPass a whitespace-only string such as `\" \"` to clear an existing value for this launch.\n\nPass either `configurationName`, or `filePath` together with `line`. These modes are mutually exclusive.\n\nBehavior:\n- When `waitForExit=true`, waits up to `timeout` milliseconds for process termination. If the timeout expires,\n  the process keeps running in the background and `exitCode` is omitted from the result.\n- When `waitForExit=false`, waits only for the process to start, then returns immediately without applying `timeout`.\n- `fullOutputPath` points to a temp file with the full raw output and may continue growing while the process is alive.\n\nReturns the execution result including current output snapshot, optional exit code, and optional `fullOutputPath`.",
+      "inputSchema": {
+        "properties": {
+          "configurationName": {
+            "type": "string",
+            "description": "Name of the existing run configuration to execute"
+          },
+          "filePath": {
+            "type": "string",
+            "description": "File path relative to the project root. Provide together with `line` to create and execute a temporary run configuration from code context."
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line number for `filePath`. Provide together with `filePath` and do not combine with `configurationName`."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout in milliseconds"
+          },
+          "waitForExit": {
+            "type": "boolean",
+            "description": "Whether to wait for process termination. If false, the tool returns immediately after the process starts and ignores `timeout`."
+          },
+          "programArguments": {
+            "type": "string",
+            "description": "Optional program arguments override for this launch only. Missing/null or empty string keeps the existing value; whitespace-only string clears it."
+          },
+          "workingDirectory": {
+            "type": "string",
+            "description": "Optional working directory override for this launch only. Missing/null or empty string keeps the existing value; whitespace-only string clears it."
+          },
+          "envs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional environment variable overrides for this launch only. Missing/null keeps existing env unchanged; when provided, values are merged over existing env."
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_run_configurations",
+      "description": "[IntelliJ IDEA] Returns either project run configurations or executable code locations, depending on the input.\n\nWithout `filePath`, this tool lists the project's existing run configurations. The result includes configuration\nnames and, when available, launch details such as program arguments, working directory, environment variables,\nand `supportsDynamicLaunchOverrides`.\n\n`supportsDynamicLaunchOverrides` is the source-of-truth capability flag for one-time launch overrides\n(`programArguments`, `workingDirectory`, `envs`) in `execute_run_configuration` and `xdebug_start_debugger_session`.\nOnly pass those override parameters when this flag is `true` for the selected configuration.\n\nWith `filePath`, this tool discovers executable entry points (run points) in that file, such as test methods,\nmain methods, or other executable entry points where the IDE shows a Run gutter icon. The result contains `filePath` and\n`runPoints`; use the returned line numbers with `execute_run_configuration` to run from code.",
+      "inputSchema": {
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Optional file path relative to the project root. When provided, returns run points (executable entry points) in the file instead of project-wide run configurations."
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    {
+      "name": "analyze_calls",
+      "description": "[IntelliJ IDEA] Builds the IDE Call Hierarchy tree for a method, function, constructor, or supported type target.\nUse it to see who calls a symbol (`INCOMING_CALLS`) or what the symbol calls (`OUTGOING_CALLS`).\nStrongly prefer this tool over usage search, text search, or regex search when evaluating dependencies by actual calls.\nIt uses IDE call hierarchy data, so it provides more precise call relationships with less noise and fewer follow-up calls than primitive searches.\n\nPass `symbolFqn` as a fully qualified name, for example `com.example.Service.run`.\nIf the name is ambiguous, the tool returns exact signatures; pass one of them back as `symbolFqn`.\nIf you only know a short name or fragment, use `search_symbol` first to find the target.\n\nThe result is an expandable text tree. Each node includes `filePath` and `treePath`; `filePath` is project-relative when possible.\nPass `treePath` back to render the subtree.\nUse `childOffset` to continue after a truncated `… and n more` line.\n`depth`, `maxChildren`, and `maxNodes` bound the rendered tree.\nSymbols can come from project sources, source jars, or decompiled binary jar dependencies when the IDE can resolve them.",
+      "inputSchema": {
+        "properties": {
+          "symbolFqn": {
+            "type": "string",
+            "description": "Plain fully qualified symbol name, or an exact signature returned by an ambiguity error or copied from a rendered child node. If you only know a short name or fragment, use `search_symbol` first and pass the best fully qualified callable name here. Examples: `com.example.Service.run`, `com.example.Service.run(String)`, or `org.assertj.core.api.Assertions.assertThat(String)`. Do not pass file path, line, column, or a separate target signature."
+          },
+          "analysisKind": {
+            "type": "string",
+            "enum": [
+              "INCOMING_CALLS",
+              "OUTGOING_CALLS"
+            ],
+            "description": "Call analysis direction. Use `INCOMING_CALLS` to show callers of `symbolFqn`, or `OUTGOING_CALLS` to show symbols called from `symbolFqn`."
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Maximum number of call levels to render below the requested subtree root. Default: 5. Use 0 to render only the subtree root."
+          },
+          "maxChildren": {
+            "type": "integer",
+            "description": "Maximum number of direct children rendered for each node. Default: 50."
+          },
+          "maxNodes": {
+            "type": "integer",
+            "description": "Maximum total number of rendered call nodes. Default: 1000."
+          },
+          "treePath": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional path to a subtree root, copied exactly from a previous `analyze_calls` result. Null or omitted means the root path `[]`. Each component is an exact signature, not a display name."
+          },
+          "childOffset": {
+            "type": "integer",
+            "description": "Offset for paging direct children of the node addressed by `treePath`. Default: 0."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout in milliseconds"
+          }
+        },
+        "required": [
+          "symbolFqn",
+          "analysisKind"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "build_project",
+      "description": "[IntelliJ IDEA] Triggers building of the project or specified files, waits for completion, and returns build errors.\nUse this tool to build the project or compile files and get detailed information about compilation errors and warnings.\nYou have to use this tool after performing edits to validate if the edits are valid.",
+      "inputSchema": {
+        "properties": {
+          "rebuild": {
+            "type": "boolean",
+            "description": "Whether to perform full rebuild the project. Defaults to false. Effective only when `filesToRebuild` is not specified."
+          },
+          "filesToRebuild": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "If specified, only compile files with the specified paths. Paths are relative to the project root."
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout in milliseconds"
+          }
+        },
+        "required": [],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_file_problems",
+      "description": "[IntelliJ IDEA] Analyzes the specified file for errors and warnings using IntelliJ's inspections.\nUse this tool to identify coding issues, syntax errors, and other problems in a specific file.\nReturns a list of problems found in the file, including severity, description, and location information.\nNote: Only analyzes files within the project directory.\nNote: Lines and Columns are 1-based.",
+      "inputSchema": {
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Path relative to the project root"
+          },
+          "errorsOnly": {
+            "type": "boolean",
+            "description": "Whether to include only errors or include both errors and warnings"
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout in milliseconds"
+          }
+        },
+        "required": [
+          "filePath"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_project_modules",
+      "description": "[IntelliJ IDEA] Get a list of all modules in the project with their types.\nReturns structured information about each module including name and type.",
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      }
+    },
+    {
+      "name": "read_file",
+      "description": "[IntelliJ IDEA] Reads a file in the project directory or from any project dependency or other project source root.\n        Can read sources inside Jar/Jrt files and decompile Java class files inside Jar/Jrt files or on disk. \n        Returns numbered lines (1-indexed) as text.\n        By default, reads up to 2000 lines starting from the beginning of the file.\n        The maximum accepted limit is 5000 lines.\n\nNote: for long files IntelliJ returns a head/tail preview rather than the full requested range. Use it for a quick look or a jar class; use the mc source tools or the harness file reader for precise long ranges.",
+      "inputSchema": {
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the file. Supports project-relative paths, paths with '..', absolute paths, archive entries like '/path/lib.jar!/pkg/Foo.class', and URLs such as 'file://', 'jar://', and 'jrt://'. Any path returned from the other tools can be passed as is (e.g. paths from 'search_*' tools)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "1-based line number to start reading from"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of lines to return (default: 2000, max: 5000)"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search_file",
+      "description": "[IntelliJ IDEA] Searches for files by glob pattern within the project.\nUse this tool when you need to match file paths using glob syntax.\n\nGlob patterns are relative to the project root.\nExamples: \"**/*.kt\", \"src/**/Foo*.java\", \"build.gradle.kts\".\nPatterns without '/' are treated as \"**/pattern\".\nPaths are optional additional glob filters relative to the project root.",
+      "inputSchema": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Glob pattern to search for"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of project-relative glob patterns to filter results. Supports '!' excludes. Trailing '/' expands to '**'. Patterns without '/' are treated as '**/pattern'. Empty strings are ignored."
+          },
+          "includeExcluded": {
+            "type": "boolean",
+            "description": "Whether to include excluded/ignored files in results"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search_regex",
+      "description": "[IntelliJ IDEA] Searches for regex matches within project files.\nUse this tool when you need regex search with match coordinates.\nResults include match coordinates when available (1-based line/column, end exclusive).\n\nPaths are glob patterns relative to the project root.\nExamples: [\"src/**\", \"!**/test/**\"], [\"**/*.kt\"], [\"foo/\"].",
+      "inputSchema": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Regex pattern to search for"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of project-relative glob patterns to filter results. Supports '!' excludes. Trailing '/' expands to '**'. Patterns without '/' are treated as '**/pattern'. Empty strings are ignored."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search_symbol",
+      "description": "[IntelliJ IDEA] Searches for symbols (classes, methods, fields).\nUse this tool for semantic lookup by identifier fragments.\nResults include match coordinates when available (1-based line/column, end exclusive).\nFor call graph questions, use this only to locate the target symbol, then pass the fully qualified callable name\nto `analyze_calls` instead of using text search or Find Usages manually.\n\nPaths are glob patterns relative to the project root.\nBy default this searches project symbols only.\nIf you don't find a suitable result, try again with include_external=true to search SDK and library symbols too.",
+      "inputSchema": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Symbol query text"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of project-relative glob patterns to filter results. Supports '!' excludes. Trailing '/' expands to '**'. Patterns without '/' are treated as '**/pattern'. Empty strings are ignored."
+          },
+          "include_external": {
+            "type": "boolean",
+            "description": "Whether to include SDK and library symbols. Disabled by default; if nothing suitable is found, try again with include_external=true."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search_text",
+      "description": "[IntelliJ IDEA] Searches for a text substring within project files.\nUse this tool for fast text search with match coordinates.\nResults include match coordinates when available (1-based line/column, end exclusive).\n\nPaths are glob patterns relative to the project root.\nExamples: [\"src/**\", \"!**/test/**\"], [\"**/*.kt\"], [\"foo/\"].",
+      "inputSchema": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Text to search for"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of project-relative glob patterns to filter results. Supports '!' excludes. Trailing '/' expands to '**'. Patterns without '/' are treated as '**/pattern'. Empty strings are ignored."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results to return"
+          }
+        },
+        "required": [
+          "q"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "get_symbol_info",
+      "description": "[IntelliJ IDEA] Retrieves information about the symbol at the specified position in the specified file.\nProvides the same information as Quick Documentation feature of IntelliJ IDEA does.\n\nThis tool is useful for getting information about the symbol at the specified position in the specified file.\nThe information may include the symbol's name, signature, type, documentation, etc. It depends on a particular language.\n\nIf the position has a reference to a symbol the tool will return a piece of code with the declaration of the symbol if possible.\n\nUse this tool to understand symbols declaration, semantics, where it's declared, etc.",
+      "inputSchema": {
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "description": "Path relative to the project root"
+          },
+          "line": {
+            "type": "integer",
+            "description": "1-based line number"
+          },
+          "column": {
+            "type": "integer",
+            "description": "1-based column number"
+          }
+        },
+        "required": [
+          "filePath",
+          "line",
+          "column"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

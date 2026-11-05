@@ -1,0 +1,5 @@
+classes/
+cache/
+*.p12
+*.crt
+*.jks

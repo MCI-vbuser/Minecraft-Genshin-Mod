@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Minecraft 源码桥",
+    "description": "索引 Forge 1.12.2 的反编译 Minecraft/Forge 源码，为模型提供类搜索、成员大纲与按行读取；并可接入 IntelliJ IDEA 的 MCP Server 获得工程级代码智能。"
+  }
+}

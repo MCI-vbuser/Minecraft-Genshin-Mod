@@ -26,6 +26,7 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.opengl.GL11;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 
@@ -34,7 +35,8 @@ import java.util.Map;
 public class ExtendedBlockRenderHandler {
 
     private static final int CHUNK_RADIUS = 6;
-    private static final double MAX_DIST_SQ = 96.0 * 96.0;
+    private static final int MAX_DIST = 96;
+    private static final double MAX_DIST_SQ = MAX_DIST * MAX_DIST;
 
     @SubscribeEvent
     public static void onRenderWorldLast(RenderWorldLastEvent event) {
@@ -70,35 +72,50 @@ public class ExtendedBlockRenderHandler {
                 int baseZ = cz << 4;
 
                 for (Map.Entry<Integer, ExtendedBlockStorage> entry : col.getSections().entrySet()) {
+                    int sectionY = entry.getKey();
+                    int baseY = sectionY << 4;
+
+                    // Skip sections entirely outside the vertical view band
+                    // before touching their 4096 slots.
+                    if (baseY + 16 < vy - MAX_DIST || baseY > vy + MAX_DIST) continue;
+
                     ExtendedBlockStorage ebs = entry.getValue();
-                    int baseY = entry.getKey() << 4;
+                    if (ebs.isEmpty()) continue;
 
-                    for (int ly = 0; ly < 16; ly++) {
-                        for (int lz = 0; lz < 16; lz++) {
-                            for (int lx = 0; lx < 16; lx++) {
-                                IBlockState state = ebs.get(lx, ly, lz);
-                                if (state.getBlock() == Blocks.AIR) continue;
+                    BitSet nonAir = col.getNonAir(sectionY);
+                    if (nonAir == null || nonAir.isEmpty()) continue;
 
-                                int wx = baseX + lx;
-                                int wy = baseY + ly;
-                                int wz = baseZ + lz;
+                    double sx = Math.max(Math.abs(baseX + 8 - vx) - 8, 0);
+                    double sy = Math.max(Math.abs(baseY + 8 - vy) - 8, 0);
+                    double sz = Math.max(Math.abs(baseZ + 8 - vz) - 8, 0);
+                    if (sx * sx + sy * sy + sz * sz > MAX_DIST_SQ) continue;
 
-                                double dx = wx + 0.5 - vx;
-                                double dy = wy + 0.5 - vy;
-                                double dz = wz + 0.5 - vz;
-                                double distSq = dx * dx + dy * dy + dz * dz;
-                                if (distSq > MAX_DIST_SQ) continue;
+                    for (int index = nonAir.nextSetBit(0); index >= 0; index = nonAir.nextSetBit(index + 1)) {
+                        int lx = ExtendedColumn.indexX(index);
+                        int ly = ExtendedColumn.indexY(index);
+                        int lz = ExtendedColumn.indexZ(index);
 
-                                BlockPos pos = new BlockPos(wx, wy, wz);
-                                BlockRenderLayer layer = state.getBlock().getBlockLayer();
-                                RenderUnit unit = new RenderUnit(state, pos, distSq);
+                        IBlockState state = ebs.get(lx, ly, lz);
+                        if (state.getBlock() == Blocks.AIR) continue;
 
-                                if (layer == BlockRenderLayer.TRANSLUCENT) {
-                                    translucent.add(unit);
-                                } else {
-                                    opaque.add(unit);
-                                }
-                            }
+                        int wx = baseX + lx;
+                        int wy = baseY + ly;
+                        int wz = baseZ + lz;
+
+                        double dx = wx + 0.5 - vx;
+                        double dy = wy + 0.5 - vy;
+                        double dz = wz + 0.5 - vz;
+                        double distSq = dx * dx + dy * dy + dz * dz;
+                        if (distSq > MAX_DIST_SQ) continue;
+
+                        BlockPos pos = new BlockPos(wx, wy, wz);
+                        BlockRenderLayer layer = state.getBlock().getBlockLayer();
+                        RenderUnit unit = new RenderUnit(state, pos, distSq);
+
+                        if (layer == BlockRenderLayer.TRANSLUCENT) {
+                            translucent.add(unit);
+                        } else {
+                            opaque.add(unit);
                         }
                     }
                 }
