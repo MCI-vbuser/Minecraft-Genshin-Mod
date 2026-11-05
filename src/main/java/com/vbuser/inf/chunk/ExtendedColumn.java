@@ -8,6 +8,7 @@ import net.minecraft.init.Blocks;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 
 import java.util.BitSet;
@@ -122,36 +123,41 @@ public class ExtendedColumn {
         if (!world.isRemote) {
             if (oldBlock != newBlock) {
                 oldBlock.breakBlock(world, pos, oldState);
+            }
+            inf$refreshTileEntity(world, pos, oldState, newState);
 
-                if (oldBlock.hasTileEntity(oldState) && !newBlock.hasTileEntity(newState)) {
-                    world.removeTileEntity(pos);
-                }
-
-                if (!world.captureBlockSnapshots || newBlock.hasTileEntity(newState)) {
-                    newBlock.onBlockAdded(world, pos, newState);
-                }
-
-                if (newBlock.hasTileEntity(newState)) {
-                    TileEntity existing = world.getTileEntity(pos);
-                    if (existing == null || existing.getBlockType() != newBlock) {
-                        if (existing != null) {
-                            existing.invalidate();
-                        }
-                        TileEntity te = newBlock.createTileEntity(world, newState);
-                        if (te != null) {
-                            world.setTileEntity(pos, te);
-                        }
-                    }
-                }
+            if (oldBlock != newBlock
+                    && (!world.captureBlockSnapshots || newBlock.hasTileEntity(newState))) {
+                newBlock.onBlockAdded(world, pos, newState);
             }
 
             if (newBlock instanceof BlockLiquid) {
                 world.scheduleUpdate(pos, newBlock, newBlock.tickRate(world));
             }
-        } else if (oldBlock != newBlock
-                && oldBlock.hasTileEntity(oldState)
-                && !newBlock.hasTileEntity(newState)) {
-            world.removeTileEntity(pos);
+        } else if (oldBlock.hasTileEntity(oldState)) {
+            inf$refreshTileEntity(world, pos, oldState, newState);
+        }
+
+        // Vanilla Chunk.setBlockState() ends with this block on *both* sides and
+        // for *every* state change of a tile entity block, not only when the
+        // block itself is replaced. TileEntity caches blockType/blockMetadata,
+        // and blocks that flip only their own state (BlockHopper.ENABLED coming
+        // from redstone is the canonical case) read that cached metadata back.
+        // Without the invalidation the tile entity keeps acting on the state it
+        // saw before the change - a hopper would ignore its redstone lock until
+        // something else (e.g. markDirty() from a GUI slot change) refreshes the
+        // cache, which is why extended-region contraptions behaved differently.
+        if (newBlock.hasTileEntity(newState)) {
+            TileEntity tileEntity = inf$getTileEntity(world, pos);
+            if (tileEntity == null) {
+                tileEntity = newBlock.createTileEntity(world, newState);
+                if (tileEntity != null) {
+                    world.setTileEntity(pos, tileEntity);
+                }
+            }
+            if (tileEntity != null) {
+                tileEntity.updateContainingBlockInfo();
+            }
         }
 
         // Drop a section that became completely empty; otherwise a long-lived
@@ -162,6 +168,30 @@ public class ExtendedColumn {
         }
 
         return oldState;
+    }
+
+    /**
+     * Existing tile entity lookup that never creates one, mirroring
+     * {@code Chunk.getTileEntity(pos, Chunk.EnumCreateEntityType.CHECK)} which
+     * is what vanilla {@code Chunk.setBlockState} uses for its TE bookkeeping.
+     */
+    private static TileEntity inf$getTileEntity(World world, BlockPos pos) {
+        return world.getChunkFromBlockCoords(pos)
+                .getTileEntity(pos, Chunk.EnumCreateEntityType.CHECK);
+    }
+
+    /**
+     * Drop a tile entity that does not survive this state change. This is
+     * {@code Chunk.setBlockState}'s {@code te.shouldRefresh(...)} step; it
+     * replaces the old "new state has no tile entity" shortcut so that modded
+     * tile entities may keep their own refresh policy.
+     */
+    private static void inf$refreshTileEntity(World world, BlockPos pos,
+                                              IBlockState oldState, IBlockState newState) {
+        TileEntity tileEntity = inf$getTileEntity(world, pos);
+        if (tileEntity != null && tileEntity.shouldRefresh(world, pos, oldState, newState)) {
+            world.removeTileEntity(pos);
+        }
     }
 
     public static int indexOf(int x, int y, int z) {

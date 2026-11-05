@@ -221,7 +221,7 @@ public abstract class MixinNetworkManager {
 
             byte[] bytes = new byte[raw.readableBytes()];
             raw.readBytes(bytes);
-            INF_LOGGER.debug("Vanilla bundle: {} packets, {} raw bytes", toSend.size(), bytes.length);
+            // INF_LOGGER.debug("Vanilla bundle: {} packets, {} raw bytes", toSend.size(), bytes.length);
             com.vbuser.genshin.tool.network.NetworkManager.sendVanillaBundle(
                     bytes, this.inf$outboundDirection(), this.packetListener);
         } catch (Throwable t) {
