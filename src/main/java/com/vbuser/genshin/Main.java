@@ -21,6 +21,7 @@ import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
+import net.minecraftforge.fml.common.event.FMLServerStoppingEvent;
 import org.spongepowered.asm.launch.MixinBootstrap;
 
 @Mod(modid = "genshin", name = "Minecraft Genshin Mod", version = "basic 1.14")
@@ -71,6 +72,11 @@ public class Main {
         event.registerServerCommand(new CommandCG());
         event.registerServerCommand(new UpdateCommand());
         event.registerServerCommand(new CommandCloudFill());
+    }
+
+    @Mod.EventHandler
+    public void serverStopping(FMLServerStoppingEvent event) {
+        NetworkManager.flushAll();
     }
 
 }

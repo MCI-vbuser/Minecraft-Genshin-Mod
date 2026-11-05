@@ -12,6 +12,7 @@
     "MixinCommandTeleport",
     "MixinCommandTP",
     "MixinMinecraftServer",
+    "MixinNetworkManager",
     "MixinPacketBuffer",
     "MixinPlayerChunkMapEntry",
     "MixinWorld"

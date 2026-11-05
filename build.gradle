@@ -96,6 +96,7 @@ dependencies {
     embed files("libs/ime.jar")
     implementation fg.deobf('software.bernie.geckolib:forge-1.12.2-geckolib:3.0.21')
     embed 'com.h2database:h2:2.1.214'
+    embed 'com.github.luben:zstd-jni:1.5.6-9'
     embed('org.spongepowered:mixin:0.8.3-SNAPSHOT') {
         changing = false
         exclude module: 'guava'
@@ -142,4 +143,11 @@ sourceSets {
     main {
         output.resourcesDir = output.classesDir
     }
+}
+
+task networkBenchmark(type: JavaExec) {
+    group = 'verification'
+    description = 'Compares per-packet framing with the aggregation layer and a NEB-like layout.'
+    classpath = sourceSets.test.runtimeClasspath
+    main = 'com.vbuser.genshin.tool.network.benchmark.NetworkBenchmark'
 }
