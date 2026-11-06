@@ -1,87 +1,212 @@
 package com.vbuser.genshin.tool.cg.decoder;
 
+import com.vbuser.genshin.tool.cg.CGFileManager;
+import com.vbuser.genshin.tool.cg.CgListener;
 import com.vbuser.genshin.tool.cg.GuiVideoOverlay;
-import com.vbuser.genshin.tool.cg.network.RequestCGFilePacket;
+import com.vbuser.genshin.tool.cg.network.CGFileClientCache;
 import net.minecraft.client.Minecraft;
-import net.minecraftforge.fml.common.FMLCommonHandler;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.util.concurrent.CopyOnWriteArrayList;
 
+/**
+ * Client side cg state machine: download, playback, overlay and listeners.
+ *
+ * <p>Every public method may be called from any thread; work is moved to the client thread
+ * when needed. The current video is exposed both as the built-in full screen overlay and as
+ * a raw GL texture ({@link #getTextureId()}) so a mod can draw it inside its own GUI by
+ * calling {@link #setAutoOverlay(boolean) setAutoOverlay(false)}.</p>
+ */
+@SideOnly(Side.CLIENT)
 public class VideoPlaybackManager {
+
+    private static final Logger LOGGER = LogManager.getLogger("VideoPlayback");
     private static final VideoPlaybackManager INSTANCE = new VideoPlaybackManager();
+
     private IVideoFrameProvider currentPlayer;
     private VideoTexture currentTexture;
-    private boolean textureReady = false;
-
-    public static VideoPlaybackManager getInstance() { return INSTANCE; }
-
+    private boolean textureReady;
     private GuiVideoOverlay overlayGui;
+    private String currentName;
+    private boolean autoOverlay = true;
 
-    public void playVideo(String fileName) {
-        stopVideo();
-        if (fileName.contains("..")) {
-            return;
+    private final CopyOnWriteArrayList<CgListener> listeners = new CopyOnWriteArrayList<>();
+
+    public static VideoPlaybackManager getInstance() {
+        return INSTANCE;
+    }
+
+    // ------------------------------------------------------------- configuration
+
+    /** When false the built-in full screen overlay is not opened; draw the texture yourself. */
+    public void setAutoOverlay(boolean value) {
+        autoOverlay = value;
+    }
+
+    public boolean isAutoOverlay() {
+        return autoOverlay;
+    }
+
+    public void addListener(CgListener listener) {
+        if (listener != null) {
+            listeners.addIfAbsent(listener);
         }
-        if (FMLCommonHandler.instance().getEffectiveSide().isClient()) {
-            File clientFile = new File("cg/" + fileName);
-            if (clientFile.exists()) {
+    }
+
+    public void removeListener(CgListener listener) {
+        listeners.remove(listener);
+    }
+
+    // ------------------------------------------------------------- local playback
+
+    /** Plays a cg for the local player, downloading it first when necessary. */
+    public void playLocal(String fileName) {
+        runOnClient(() -> {
+            stopVideoNow();
+            if (!CGFileManager.isValidName(fileName)) {
+                fireFail(fileName, "illegal cg file name");
+                return;
+            }
+            currentName = fileName;
+            if (CGFileManager.exists(fileName)) {
                 startLocalPlayback(fileName);
             } else {
-                RequestCGFilePacket.send(fileName);
+                fireLoading(fileName, 0f);
+                CGFileClientCache.request(fileName, true);
             }
-        } else {
-            throw new IllegalStateException("Server cannot directly play video, use CGAPI.playCG(player, fileName) instead.");
-        }
+        });
+    }
+
+    /** Legacy name kept for compatibility. */
+    public void playVideo(String fileName) {
+        playLocal(fileName);
+    }
+
+    /** Downloads a cg without playing it. */
+    public void prefetch(String fileName) {
+        runOnClient(() -> {
+            if (!CGFileManager.isValidName(fileName)) {
+                fireFail(fileName, "illegal cg file name");
+                return;
+            }
+            if (CGFileManager.exists(fileName)) {
+                fireReady(fileName);
+                return;
+            }
+            fireLoading(fileName, 0f);
+            CGFileClientCache.request(fileName, false);
+        });
     }
 
     private void startLocalPlayback(String fileName) {
-        String fullPath = "cg/" + fileName;
-        Minecraft.getMinecraft().addScheduledTask(() -> {
-            if (overlayGui == null) {
-                overlayGui = new GuiVideoOverlay();
-                Minecraft.getMinecraft().displayGuiScreen(overlayGui);
-            }
-        });
-        FXVideoPlayer player = new FXVideoPlayer(fullPath);
+        File file;
+        try {
+            file = CGFileManager.getFile(fileName);
+        } catch (IllegalArgumentException e) {
+            fireFail(fileName, "illegal cg file name");
+            return;
+        }
+        if (!file.isFile()) {
+            fireFail(fileName, "file not found: " + file.getAbsolutePath());
+            return;
+        }
+        if (autoOverlay && overlayGui == null) {
+            GuiScreen previous = Minecraft.getMinecraft().currentScreen;
+            overlayGui = new GuiVideoOverlay(previous);
+            Minecraft.getMinecraft().displayGuiScreen(overlayGui);
+        }
+        FXVideoPlayer player = new FXVideoPlayer(file.getAbsolutePath());
         player.start();
         currentPlayer = player;
         textureReady = false;
+        fireStart(fileName);
     }
 
-    public void stopPlayerOnly() {
-        if (currentPlayer != null) {
-            currentPlayer.stop();
-            currentPlayer = null;
-        }
-        Minecraft.getMinecraft().addScheduledTask(() -> {
-            if (currentTexture != null) {
-                currentTexture.close();
-                currentTexture = null;
-            }
-            textureReady = false;
-        });
-    }
+    // ------------------------------------------------------------- controls
 
     public void stopVideo() {
+        runOnClient(this::stopVideoNow);
+    }
+
+    private void stopVideoNow() {
+        currentName = null;
+        stopPlayerOnlyNow();
+        if (overlayGui != null) {
+            GuiVideoOverlay overlay = overlayGui;
+            overlayGui = null;
+            overlay.closeOverlay();
+        }
+    }
+
+    /** Stops decoding and releases the texture, keeping the current name. */
+    public void stopPlayerOnly() {
+        runOnClient(this::stopPlayerOnlyNow);
+    }
+
+    private void stopPlayerOnlyNow() {
         if (currentPlayer != null) {
             currentPlayer.stop();
             currentPlayer = null;
         }
-        Minecraft.getMinecraft().addScheduledTask(() -> {
-            if (currentTexture != null) {
-                currentTexture.close();
-                currentTexture = null;
-            }
-            textureReady = false;
-            if (overlayGui != null) {
-                overlayGui.closeOverlay();
-                overlayGui = null;
+        if (currentTexture != null) {
+            currentTexture.close();
+            currentTexture = null;
+        }
+        textureReady = false;
+    }
+
+    /** Called by the overlay when the player closes it with ESC. */
+    public void onOverlayClosed() {
+        runOnClient(() -> {
+            overlayGui = null;
+            stopPlayerOnlyNow();
+            currentName = null;
+        });
+    }
+
+    public void pauseVideo() {
+        runOnClient(() -> {
+            if (currentPlayer != null) {
+                currentPlayer.pause();
             }
         });
     }
+
+    public void resumeVideo() {
+        runOnClient(() -> {
+            if (currentPlayer != null) {
+                currentPlayer.resume();
+            }
+        });
+    }
+
+    // ------------------------------------------------------------- state
 
     public boolean isVideoActive() {
         return currentPlayer != null && currentPlayer.isPlaying();
+    }
+
+    public boolean isPaused() {
+        return currentPlayer != null && currentPlayer.isPaused();
+    }
+
+    public float getProgress() {
+        IVideoFrameProvider player = currentPlayer;
+        return player == null ? 0f : player.getProgress();
+    }
+
+    public long getDurationMs() {
+        IVideoFrameProvider player = currentPlayer;
+        return player == null ? 0L : player.getDurationMs();
+    }
+
+    public String getCurrent() {
+        return currentName;
     }
 
     public boolean isTextureReady() {
@@ -97,11 +222,14 @@ public class VideoPlaybackManager {
     }
 
     public void updateTexture() {
-        if (currentPlayer == null || !currentPlayer.isPlaying()) return;
-        int[] frame = currentPlayer.getFramePixels();
+        IVideoFrameProvider player = currentPlayer;
+        if (player == null || !player.isPlaying()) {
+            return;
+        }
+        int[] frame = player.getFramePixels();
         if (frame != null) {
             if (currentTexture == null) {
-                currentTexture = new VideoTexture(currentPlayer.getWidth(), currentPlayer.getHeight());
+                currentTexture = new VideoTexture(player.getWidth(), player.getHeight());
                 textureReady = true;
             }
             currentTexture.uploadFrame(frame);
@@ -109,9 +237,122 @@ public class VideoPlaybackManager {
     }
 
     public int getVideoWidth() {
-        return currentPlayer != null ? currentPlayer.getWidth() : 1;
+        IVideoFrameProvider player = currentPlayer;
+        return player != null ? player.getWidth() : 1;
     }
+
     public int getVideoHeight() {
-        return currentPlayer != null ? currentPlayer.getHeight() : 1;
+        IVideoFrameProvider player = currentPlayer;
+        return player != null ? player.getHeight() : 1;
+    }
+
+    // ------------------------------------------------------------- callbacks
+
+    /** Called by the decoder when the video reached its end. */
+    public void onPlaybackEnded() {
+        runOnClient(() -> {
+            String finished = currentName;
+            stopVideoNow();
+            fireEnd(finished);
+        });
+    }
+
+    /** Called by the decoder when decoding could not start. */
+    public void onPlaybackFailed(String reason) {
+        runOnClient(() -> {
+            String failed = currentName;
+            stopVideoNow();
+            fireFail(failed, reason);
+        });
+    }
+
+    /** Called by the download cache on the client thread. */
+    public void onDownloadProgress(String fileName, float progress) {
+        fireLoading(fileName, progress);
+    }
+
+    /** Called by the download cache on the client thread. */
+    public void onDownloadFinished(String fileName, boolean saved, boolean autoPlay) {
+        if (!saved) {
+            onDownloadFailed(fileName, "the downloaded file could not be saved");
+            return;
+        }
+        fireReady(fileName);
+        if (autoPlay && fileName.equals(currentName)) {
+            startLocalPlayback(fileName);
+        }
+    }
+
+    /** Called by the download cache on the client thread. */
+    public void onDownloadFailed(String fileName, String reason) {
+        if (fileName != null && fileName.equals(currentName)) {
+            stopVideoNow();
+        }
+        fireFail(fileName, reason);
+    }
+
+    // ------------------------------------------------------------- events
+
+    private void fireLoading(String fileName, float progress) {
+        for (CgListener listener : listeners) {
+            try {
+                listener.onLoading(fileName, progress);
+            } catch (RuntimeException e) {
+                LOGGER.warn("CG listener threw", e);
+            }
+        }
+    }
+
+    private void fireReady(String fileName) {
+        for (CgListener listener : listeners) {
+            try {
+                listener.onReady(fileName);
+            } catch (RuntimeException e) {
+                LOGGER.warn("CG listener threw", e);
+            }
+        }
+    }
+
+    private void fireStart(String fileName) {
+        for (CgListener listener : listeners) {
+            try {
+                listener.onStart(fileName);
+            } catch (RuntimeException e) {
+                LOGGER.warn("CG listener threw", e);
+            }
+        }
+    }
+
+    private void fireFail(String fileName, String reason) {
+        LOGGER.warn("CG {} failed: {}", fileName, reason);
+        for (CgListener listener : listeners) {
+            try {
+                listener.onFail(fileName, reason);
+            } catch (RuntimeException e) {
+                LOGGER.warn("CG listener threw", e);
+            }
+        }
+    }
+
+    private void fireEnd(String fileName) {
+        if (fileName == null) {
+            return;
+        }
+        for (CgListener listener : listeners) {
+            try {
+                listener.onEnd(fileName);
+            } catch (RuntimeException e) {
+                LOGGER.warn("CG listener threw", e);
+            }
+        }
+    }
+
+    private static void runOnClient(Runnable task) {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft.isCallingFromMinecraftThread()) {
+            task.run();
+        } else {
+            minecraft.addScheduledTask(task);
+        }
     }
 }

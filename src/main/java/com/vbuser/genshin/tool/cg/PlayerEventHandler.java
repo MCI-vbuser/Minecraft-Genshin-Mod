@@ -11,18 +11,30 @@ import net.minecraftforge.client.event.RenderGameOverlayEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import org.lwjgl.opengl.GL11;
 
+/**
+ * Draws the active cg frame as a full screen overlay.
+ *
+ * <p>Only active when the built-in overlay is enabled; a mod that draws the video texture
+ * itself should call {@code CGAPI.setAutoOverlay(false)}.</p>
+ */
 public class PlayerEventHandler {
 
     @SubscribeEvent
     public void onRenderOverlay(RenderGameOverlayEvent.Post event) {
-        if (event.getType() != RenderGameOverlayEvent.ElementType.ALL) return;
+        if (event.getType() != RenderGameOverlayEvent.ElementType.ALL) {
+            return;
+        }
 
         VideoPlaybackManager manager = VideoPlaybackManager.getInstance();
-        if (!manager.isVideoActive()) return;
+        if (!manager.isAutoOverlay() || !manager.isVideoActive()) {
+            return;
+        }
 
         manager.updateTexture();
 
-        if (!manager.isTextureReady()) return;
+        if (!manager.isTextureReady()) {
+            return;
+        }
 
         GlStateManager.enableBlend();
         GlStateManager.disableAlpha();
@@ -30,7 +42,9 @@ public class PlayerEventHandler {
         GlStateManager.disableLighting();
 
         int texId = manager.getTextureId();
-        if (texId == -1) return;
+        if (texId == -1) {
+            return;
+        }
 
         GlStateManager.bindTexture(texId);
 

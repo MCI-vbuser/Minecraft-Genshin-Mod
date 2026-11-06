@@ -1,7 +1,6 @@
 package com.vbuser.genshin.tool.cg.command;
 
-import com.vbuser.genshin.tool.cg.network.PlayCGPacket;
-import com.vbuser.genshin.tool.network.NetworkManager;
+import com.vbuser.genshin.tool.cg.CGAPI;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.CommandException;
 import net.minecraft.command.ICommandSender;
@@ -44,18 +43,22 @@ public class CommandCG extends CommandBase {
 
         List<EntityPlayerMP> players = getPlayers(server, sender, selector);
 
-        PlayCGPacket packet = new PlayCGPacket(fileName);
-        for (EntityPlayerMP player : players) {
-            NetworkManager.sendToPlayer(packet, player);
+        int sent = CGAPI.playTo(players, fileName);
+        if (sent == 0) {
+            throw new CommandException("Could not play '" + fileName
+                    + "': the file does not exist in " + CGAPI.getCGDir());
         }
         sender.sendMessage(new TextComponentString(
-                "Sent CG play '" + fileName + "' to " + players.size() + " player(s)."));
+                "Sent CG play '" + fileName + "' to " + sent + " player(s)."));
     }
 
     @Override
     public List<String> getTabCompletions(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos) {
         if (args.length == 1) {
             return getListOfStringsMatchingLastWord(args, server.getOnlinePlayerNames());
+        }
+        if (args.length == 2) {
+            return getListOfStringsMatchingLastWord(args, CGAPI.list());
         }
         return Collections.emptyList();
     }

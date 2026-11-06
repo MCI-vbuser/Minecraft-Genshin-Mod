@@ -1,36 +1,58 @@
 package com.vbuser.genshin.tool.cg.decoder;
+
 import javafx.application.Platform;
+import javafx.embed.swing.JFXPanel;
 import javafx.scene.Group;
 import javafx.scene.Scene;
-import javafx.scene.image.WritableImage;
 import javafx.scene.image.PixelFormat;
+import javafx.scene.image.WritableImage;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.media.MediaView;
 import javafx.stage.Stage;
-import javafx.embed.swing.JFXPanel;
 import javafx.stage.StageStyle;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * JavaFX based video decoder that exposes the decoded frame as an ARGB int array.
+ *
+ * <p>Decoding, pausing and seeking all happen on the JavaFX thread; the state read by the
+ * render thread is kept in volatile fields.</p>
+ */
 public class FXVideoPlayer implements IVideoFrameProvider {
+
+    private static final Logger LOGGER = LogManager.getLogger("FXVideoPlayer");
+
     private MediaPlayer mediaPlayer;
     private MediaView mediaView;
     private Stage invisibleStage;
-    private int width, height;
+    private int width;
+    private int height;
     private volatile boolean playing;
+    private volatile boolean stopped;
+    private volatile boolean paused;
+    private volatile long currentMs;
+    private volatile long totalMs;
     private final ArrayBlockingQueue<int[]> frameQueue = new ArrayBlockingQueue<>(3);
-    private volatile boolean stopped = false;
 
     private static volatile boolean jfxInitialized = false;
+
     public static void initJavaFX() {
         if (!jfxInitialized) {
             new JFXPanel();
             Platform.setImplicitExit(false);
             jfxInitialized = true;
         }
+    }
+
+    /** True once the JavaFX toolkit has been started. */
+    public static boolean isInitialized() {
+        return jfxInitialized;
     }
 
     private final String videoFilePath;
@@ -40,9 +62,14 @@ public class FXVideoPlayer implements IVideoFrameProvider {
     }
 
     @Override
-    public int getWidth() { return width; }
+    public int getWidth() {
+        return width;
+    }
+
     @Override
-    public int getHeight() { return height; }
+    public int getHeight() {
+        return height;
+    }
 
     @Override
     public synchronized void start() {
@@ -51,10 +78,10 @@ public class FXVideoPlayer implements IVideoFrameProvider {
             try {
                 invisibleStage = new Stage(StageStyle.UTILITY);
                 File videoFile = new File(videoFilePath);
-                System.out.println("[VideoMod] Looking for video at: " + videoFile.getAbsolutePath());
-                if (!videoFile.exists()) {
-                    System.err.println("[VideoMod] Video file not found!");
+                if (!videoFile.isFile()) {
+                    LOGGER.error("[FXVideoPlayer] Video file not found: {}", videoFile.getAbsolutePath());
                     playing = false;
+                    reportFailure("file not found: " + videoFile.getAbsolutePath());
                     return;
                 }
                 invisibleStage.setOpacity(0);
@@ -73,18 +100,29 @@ public class FXVideoPlayer implements IVideoFrameProvider {
                 mediaPlayer.setOnReady(() -> {
                     width = media.getWidth();
                     height = media.getHeight();
-                    System.out.println("[VideoMod] Media ready, resolution: " + media.getWidth() + "x" + media.getHeight());
+                    totalMs = (long) media.getDuration().toMillis();
                     startSnapshotTimer();
                     mediaPlayer.play();
                 });
-                mediaPlayer.setOnEndOfMedia(() -> VideoPlaybackManager.getInstance().stopVideo());
+                mediaPlayer.setOnEndOfMedia(() -> VideoPlaybackManager.getInstance().onPlaybackEnded());
 
-                mediaPlayer.setOnError(() -> System.err.println("[VideoMod] MediaPlayer error: " + mediaPlayer.getError()));
+                mediaPlayer.setOnError(() -> {
+                    String error = mediaPlayer.getError() == null ? "unknown media error" : mediaPlayer.getError().getMessage();
+                    LOGGER.error("[FXVideoPlayer] MediaPlayer error: {}", error);
+                    reportFailure(error);
+                });
             } catch (Exception e) {
-                System.err.println("[VideoMod] Error starting player: "+e.getMessage());
+                LOGGER.error("[FXVideoPlayer] Error starting the player", e);
+                reportFailure("could not start the player: " + e.getMessage());
             }
         });
+        paused = false;
+        stopped = false;
         playing = true;
+    }
+
+    private void reportFailure(String reason) {
+        VideoPlaybackManager.getInstance().onPlaybackFailed(reason);
     }
 
     private void startSnapshotTimer() {
@@ -95,21 +133,40 @@ public class FXVideoPlayer implements IVideoFrameProvider {
                     stop();
                     return;
                 }
+                updateTiming();
                 captureFrame();
             }
         }.start();
     }
 
-    private void captureFrame() {
-        if (mediaView == null || width <= 0 || height <= 0) return;
-        WritableImage snapshot = mediaView.snapshot(null, null);
-        if (snapshot != null) {
-            int[] pixels = new int[width * height];
-            snapshot.getPixelReader().getPixels(0, 0, width, height,
-                    PixelFormat.getIntArgbInstance(), pixels, 0, width);
-            frameQueue.poll();
-            frameQueue.offer(pixels);
+    private void updateTiming() {
+        try {
+            javafx.util.Duration current = mediaPlayer.getCurrentTime();
+            javafx.util.Duration total = mediaPlayer.getTotalDuration();
+            if (current != null) {
+                currentMs = (long) current.toMillis();
+            }
+            if (total != null) {
+                totalMs = (long) total.toMillis();
+            }
+        } catch (Throwable ignored) {
+            // Timing is informational only.
         }
+    }
+
+    private void captureFrame() {
+        if (mediaView == null || width <= 0 || height <= 0) {
+            return;
+        }
+        WritableImage snapshot = mediaView.snapshot(null, null);
+        if (snapshot == null) {
+            return;
+        }
+        int[] pixels = new int[width * height];
+        snapshot.getPixelReader().getPixels(0, 0, width, height,
+                PixelFormat.getIntArgbInstance(), pixels, 0, width);
+        frameQueue.poll();
+        frameQueue.offer(pixels);
     }
 
     @Override
@@ -117,13 +174,16 @@ public class FXVideoPlayer implements IVideoFrameProvider {
         try {
             return frameQueue.poll(10, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             return null;
         }
     }
 
+    @Override
     public synchronized void stop() {
         stopped = true;
         playing = false;
+        paused = false;
         Platform.runLater(() -> {
             if (mediaPlayer != null) {
                 mediaPlayer.stop();
@@ -134,6 +194,47 @@ public class FXVideoPlayer implements IVideoFrameProvider {
             }
             frameQueue.clear();
         });
+    }
+
+    @Override
+    public void pause() {
+        if (!playing || stopped) {
+            return;
+        }
+        paused = true;
+        Platform.runLater(() -> {
+            if (mediaPlayer != null) {
+                mediaPlayer.pause();
+            }
+        });
+    }
+
+    @Override
+    public void resume() {
+        if (!playing || stopped) {
+            return;
+        }
+        paused = false;
+        Platform.runLater(() -> {
+            if (mediaPlayer != null) {
+                mediaPlayer.play();
+            }
+        });
+    }
+
+    @Override
+    public boolean isPaused() {
+        return paused;
+    }
+
+    @Override
+    public float getProgress() {
+        return totalMs <= 0 ? 0f : Math.max(0f, Math.min(1f, (float) ((double) currentMs / (double) totalMs)));
+    }
+
+    @Override
+    public long getDurationMs() {
+        return totalMs;
     }
 
     @Override

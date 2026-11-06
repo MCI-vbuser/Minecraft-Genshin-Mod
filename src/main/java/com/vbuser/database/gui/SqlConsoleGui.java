@@ -69,23 +69,44 @@ public class SqlConsoleGui extends GuiScreen {
             mc.displayGuiScreen(null);
             return;
         }
+
         if (keyCode == Keyboard.KEY_RETURN) {
             String rawInput = inputField.getText().trim();
             if (!rawInput.isEmpty()) {
-                if (!lines.isEmpty() && !lines.get(lines.size()-1).text.isEmpty()) {
+                if (!lines.isEmpty() && !lines.get(lines.size() - 1).text.isEmpty()) {
                     addLine("", 0xFFFFFF);
                 }
                 addLine("> " + rawInput, 0xFFFFFF);
                 executeSql(rawInput);
                 inputField.setText("");
             }
-        } else if (keyCode == Keyboard.KEY_UP) {
-            scrollOffset = Math.max(0, scrollOffset - 1);
-        } else if (keyCode == Keyboard.KEY_DOWN) {
-            scrollOffset = Math.min(lines.size() - maxLinesDisplayed, scrollOffset + 1);
-        } else {
-            inputField.textboxKeyTyped(typedChar, keyCode);
+            return;
         }
+
+        if (keyCode == Keyboard.KEY_UP) {
+            scrollOffset = Math.max(0, scrollOffset - 1);
+            return;
+        }
+
+        if (keyCode == Keyboard.KEY_DOWN) {
+            scrollOffset = Math.min(lines.size() - maxLinesDisplayed, scrollOffset + 1);
+            return;
+        }
+
+        if (GuiScreen.isKeyComboCtrlV(keyCode)) {
+            String clip = GuiScreen.getClipboardString();
+            if (!clip.isEmpty()) {
+                String normalized = clip
+                        .replace("\r\n", " ")
+                        .replace('\r', ' ')
+                        .replace('\n', ' ')
+                        .replace('\t', ' ');
+                inputField.writeText(normalized);
+            }
+            return;
+        }
+
+        inputField.textboxKeyTyped(typedChar, keyCode);
     }
 
     @Override
@@ -107,7 +128,7 @@ public class SqlConsoleGui extends GuiScreen {
     }
 
     private void executeSql(String sql) {
-        SqlApi.executeSql(sql, Collections.emptyList(), result -> pendingTasks.add(() -> {
+        SqlApi.execute(sql, Collections.emptyList(), result -> pendingTasks.add(() -> {
             if (result.isSuccess()) {
                 if (result.getRows() != null) {
                     addLine(TextFormatting.GREEN + "Successfully got " + result.getRows().size() + " line(s)", 0x55FF55);

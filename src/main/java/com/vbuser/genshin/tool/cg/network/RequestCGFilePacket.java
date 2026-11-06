@@ -1,5 +1,6 @@
 package com.vbuser.genshin.tool.cg.network;
 
+import com.vbuser.genshin.tool.cg.CGFileManager;
 import com.vbuser.genshin.tool.cg.server.CGFileServerHandler;
 import com.vbuser.genshin.tool.network.ModPacket;
 import com.vbuser.genshin.tool.network.NetworkManager;
@@ -14,7 +15,9 @@ public class RequestCGFilePacket extends ModPacket {
     private String fileName;
 
     @SuppressWarnings("unused")
-    public RequestCGFilePacket() {}
+    public RequestCGFilePacket() {
+    }
+
     public RequestCGFilePacket(String fileName) {
         this.fileName = fileName;
     }
@@ -41,8 +44,13 @@ public class RequestCGFilePacket extends ModPacket {
 
     @Override
     public void handle(MessageContext ctx) {
-        if (ctx.side.isServer()) {
-            CGFileServerHandler.handleRequest(ctx.getServerHandler().player, fileName);
+        if (!ctx.side.isServer()) {
+            return;
         }
+        if (!CGFileManager.isValidName(fileName)) {
+            // Rejected for every client, not only the ones using the API.
+            return;
+        }
+        CGFileServerHandler.handleRequest(ctx.getServerHandler().player, fileName);
     }
 }

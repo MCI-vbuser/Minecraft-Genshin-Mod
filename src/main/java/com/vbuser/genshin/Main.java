@@ -51,15 +51,15 @@ public class Main {
         // Register event hook for example network packet.
         if (event.getSide().isClient()) {
             MinecraftForge.EVENT_BUS.register(new ClientEventHandler());
+            // Client only: these touch client classes (video decoder, sound system).
+            MinecraftForge.EVENT_BUS.register(new PlayerEventHandler());
+            MinecraftForge.EVENT_BUS.register(new BGMClientEventHandler());
+            // Initialize video decoder.
+            FXVideoPlayer.initJavaFX();
         }
         MinecraftForge.EVENT_BUS.register(new ServerEventHandler());
         // Register force sprint.
         MinecraftForge.EVENT_BUS.register(new KeyInputHandler());
-        // Initialize video decoder.
-        FXVideoPlayer.initJavaFX();
-        MinecraftForge.EVENT_BUS.register(new PlayerEventHandler());
-        // Register Stopper for sideload bgm system.
-        MinecraftForge.EVENT_BUS.register(new BGMClientEventHandler());
         // Register Camera Position Tracker.
         MinecraftForge.EVENT_BUS.register(new CameraPos());
 

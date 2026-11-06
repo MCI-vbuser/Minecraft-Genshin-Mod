@@ -1,109 +1,108 @@
 package com.vbuser.database.network;
 
 import com.vbuser.database.sql.DatabaseHelper;
+import com.vbuser.database.sql.SqlApi;
 import com.vbuser.database.sql.SqlExecutionResult;
+import com.vbuser.database.sql.SqlValueCodec;
 import com.vbuser.genshin.tool.network.ModPacket;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import io.netty.buffer.ByteBuf;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
+/**
+ * Client to server SQL request.
+ *
+ * <p>Two modes exist:</p>
+ * <ul>
+ *   <li>registered query: {@code queryName != null}. The server resolves it from the
+ *       {@link SqlApi#registerQuery(String, String) registry}, so a client can only run
+ *       statements the server explicitly exposed.</li>
+ *   <li>raw SQL: {@code sql != null}. Requires
+ *       {@link SqlApi.Authorizer#canExecute(EntityPlayerMP, String)} to pass; the default
+ *       authorizer demands permission level 4.</li>
+ * </ul>
+ */
 public class SqlExecutePacket extends ModPacket {
+
+    /** Hard cap on a statement sent by a client. */
+    public static final int MAX_SQL_LENGTH = 100_000;
+
     private String sql;
+    private String queryName;
     private List<Object> parameters;
     private long requestId;
 
     @SuppressWarnings("unused")
-    public SqlExecutePacket() {}
+    public SqlExecutePacket() {
+    }
 
-    public SqlExecutePacket(String sql, List<Object> parameters, long requestId) {
-        this.sql = sql;
-        this.parameters = parameters;
+    public SqlExecutePacket(String sqlOrQueryName, boolean registered, List<Object> parameters, long requestId) {
+        if (registered) {
+            this.queryName = sqlOrQueryName;
+        } else {
+            this.sql = sqlOrQueryName;
+        }
+        this.parameters = parameters == null ? Collections.emptyList() : parameters;
         this.requestId = requestId;
     }
 
     @Override
     public void encode(ByteBuf buf) {
-        byte[] sqlBytes = sql.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        buf.writeShort(sqlBytes.length);
-        buf.writeBytes(sqlBytes);
-
-        buf.writeShort(parameters.size());
-        for (Object param : parameters) {
-            writeObject(buf, param);
+        SqlValueCodec.writeString(buf, sql);
+        SqlValueCodec.writeString(buf, queryName);
+        List<Object> params = parameters == null ? Collections.emptyList() : parameters;
+        buf.writeInt(params.size());
+        for (Object param : params) {
+            SqlValueCodec.writeValue(buf, param);
         }
-
         buf.writeLong(requestId);
     }
 
     @Override
     public void decode(ByteBuf buf) {
-        int sqlLen = buf.readUnsignedShort();
-        byte[] sqlBytes = new byte[sqlLen];
-        buf.readBytes(sqlBytes);
-        sql = new String(sqlBytes, java.nio.charset.StandardCharsets.UTF_8);
-
-        int paramCount = buf.readUnsignedShort();
+        sql = SqlValueCodec.readString(buf);
+        queryName = SqlValueCodec.readString(buf);
+        int paramCount = buf.readInt();
+        if (paramCount < 0 || paramCount > 4096) {
+            throw new IllegalArgumentException("Illegal SQL parameter count: " + paramCount);
+        }
         parameters = new ArrayList<>(paramCount);
         for (int i = 0; i < paramCount; i++) {
-            parameters.add(readObject(buf));
+            parameters.add(SqlValueCodec.readValue(buf));
         }
-
         requestId = buf.readLong();
     }
 
     @Override
     public void handle(MessageContext ctx) {
-        if (ctx.side.isServer()) {
-            SqlExecutionResult result = DatabaseHelper.executeSql(sql, parameters);
-            SqlResultPacket resultPacket = new SqlResultPacket(requestId, result);
-            NetworkManager.sendToPlayer(resultPacket, ctx.getServerHandler().player);
+        if (!ctx.side.isServer()) {
+            return;
         }
+        EntityPlayerMP player = ctx.getServerHandler().player;
+        SqlExecutionResult result = execute(player);
+        NetworkManager.sendToPlayer(new SqlResultPacket(requestId, result), player);
     }
 
-    private void writeObject(ByteBuf buf, Object obj) {
-        if (obj instanceof String) {
-            buf.writeByte(0);
-            byte[] bytes = ((String) obj).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            buf.writeShort(bytes.length);
-            buf.writeBytes(bytes);
-        } else if (obj instanceof Integer) {
-            buf.writeByte(1);
-            buf.writeInt((Integer) obj);
-        } else if (obj instanceof Long) {
-            buf.writeByte(2);
-            buf.writeLong((Long) obj);
-        } else if (obj instanceof Double) {
-            buf.writeByte(3);
-            buf.writeDouble((Double) obj);
-        } else if (obj instanceof Boolean) {
-            buf.writeByte(4);
-            buf.writeBoolean((Boolean) obj);
-        } else {
-            throw new IllegalArgumentException("Unsupported parameter type: " + obj.getClass());
+    private SqlExecutionResult execute(EntityPlayerMP player) {
+        List<Object> params = parameters == null ? Collections.emptyList() : parameters;
+        if (queryName != null) {
+            return SqlApi.runRegisteredQuery(queryName, params);
         }
-    }
-
-    private Object readObject(ByteBuf buf) {
-        int type = buf.readByte();
-        switch (type) {
-            case 0:
-                int len = buf.readUnsignedShort();
-                byte[] bytes = new byte[len];
-                buf.readBytes(bytes);
-                return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-            case 1:
-                return buf.readInt();
-            case 2:
-                return buf.readLong();
-            case 3:
-                return buf.readDouble();
-            case 4:
-                return buf.readBoolean();
-            default:
-                throw new IllegalStateException("Unknown type id: " + type);
+        if (sql == null || sql.trim().isEmpty()) {
+            return SqlExecutionResult.error("SQL statement must not be empty.");
         }
+        if (sql.length() > MAX_SQL_LENGTH) {
+            return SqlExecutionResult.error("SQL statement exceeds " + MAX_SQL_LENGTH + " characters.");
+        }
+        if (!SqlApi.authorizeRawSql(player, sql)) {
+            return SqlExecutionResult.error(
+                    "Permission denied: raw SQL from a client requires the server to authorize it.");
+        }
+        return DatabaseHelper.executeSql(sql, params);
     }
 }
