@@ -67,17 +67,23 @@ public class VideoPlaybackManager {
     /** Plays a cg for the local player, downloading it first when necessary. */
     public void playLocal(String fileName) {
         runOnClient(() -> {
-            stopVideoNow();
-            if (!CGFileManager.isValidName(fileName)) {
-                fireFail(fileName, "illegal cg file name");
-                return;
-            }
-            currentName = fileName;
-            if (CGFileManager.exists(fileName)) {
-                startLocalPlayback(fileName);
-            } else {
-                fireLoading(fileName, 0f);
-                CGFileClientCache.request(fileName, true);
+            try {
+                stopVideoNow();
+                if (!CGFileManager.isValidName(fileName)) {
+                    fireFail(fileName, "illegal cg file name");
+                    return;
+                }
+                currentName = fileName;
+                if (CGFileManager.exists(fileName)) {
+                    startLocalPlayback(fileName);
+                } else {
+                    fireLoading(fileName, 0f);
+                    CGFileClientCache.request(fileName, true);
+                }
+            } catch (Throwable t) {
+                LOGGER.error("[VideoPlayback] playLocal({}) failed", fileName, t);
+                stopVideoNow();
+                fireFail(fileName, "could not start playback: " + t);
             }
         });
     }
@@ -104,27 +110,78 @@ public class VideoPlaybackManager {
     }
 
     private void startLocalPlayback(String fileName) {
-        File file;
         try {
-            file = CGFileManager.getFile(fileName);
-        } catch (IllegalArgumentException e) {
-            fireFail(fileName, "illegal cg file name");
+            File file;
+            try {
+                file = CGFileManager.getFile(fileName);
+            } catch (IllegalArgumentException e) {
+                fireFail(fileName, "illegal cg file name");
+                return;
+            }
+            if (!file.isFile()) {
+                fireFail(fileName, "file not found: " + file.getAbsolutePath());
+                return;
+            }
+            if (autoOverlay && overlayGui == null) {
+                GuiScreen previous = Minecraft.getMinecraft().currentScreen;
+                overlayGui = new GuiVideoOverlay(previous);
+                Minecraft.getMinecraft().displayGuiScreen(overlayGui);
+            }
+            IVideoFrameProvider player = createPlayer(file.getAbsolutePath());
+            currentPlayer = player;
+            textureReady = false;
+            fireStart(fileName);
+        } catch (Throwable t) {
+            // Never let a decoder problem escape into the client tick.
+            LOGGER.error("[VideoPlayback] Could not start playback of {}", fileName, t);
+            stopVideoNow();
+            fireFail(fileName, "could not start playback: " + t);
+        }
+    }
+
+    /**
+     * Picks the decoder for this platform.
+     *
+     * <p>On Windows Media Foundation is preferred because JavaFX's Windows media backend
+     * (GStreamer + DirectShow) fails with {@code ERROR_MEDIA_INVALID} on some Windows/driver
+     * combinations. Everywhere else, or when MF cannot open the file, JavaFX is used.</p>
+     */
+    private boolean environmentLogged;
+
+    private void logEnvironmentOnce() {
+        if (environmentLogged) {
             return;
         }
-        if (!file.isFile()) {
-            fireFail(fileName, "file not found: " + file.getAbsolutePath());
-            return;
+        environmentLogged = true;
+        LOGGER.info("[VideoPlayback] env os={} java={} mfSupported={} javafxInitialized={}",
+                System.getProperty("os.name"), System.getProperty("java.version"),
+                MFVideoPlayer.isSupported(), FXVideoPlayer.isInitialized());
+    }
+
+    private IVideoFrameProvider createPlayer(String absolutePath) {
+        logEnvironmentOnce();
+        if (MFVideoPlayer.isSupported()) {
+            VideoPlaybackManager self = this;
+            MFVideoPlayer mf = new MFVideoPlayer(absolutePath,
+                    self::onPlaybackEnded,
+                    self::onPlaybackFailed);
+            try {
+                mf.start();
+                LOGGER.info("[VideoPlayback] Decoder: Media Foundation");
+                return mf;
+            } catch (Throwable t) {
+                LOGGER.warn("[VideoPlayback] Media Foundation could not play this file, "
+                        + "falling back to JavaFX", t);
+                try {
+                    mf.stop();
+                } catch (Throwable ignored) {
+                }
+            }
         }
-        if (autoOverlay && overlayGui == null) {
-            GuiScreen previous = Minecraft.getMinecraft().currentScreen;
-            overlayGui = new GuiVideoOverlay(previous);
-            Minecraft.getMinecraft().displayGuiScreen(overlayGui);
-        }
-        FXVideoPlayer player = new FXVideoPlayer(file.getAbsolutePath());
-        player.start();
-        currentPlayer = player;
-        textureReady = false;
-        fireStart(fileName);
+        FXVideoPlayer fx = new FXVideoPlayer(absolutePath);
+        fx.start();
+        LOGGER.info("[VideoPlayback] Decoder: JavaFX");
+        return fx;
     }
 
     // ------------------------------------------------------------- controls

@@ -94,6 +94,8 @@ dependencies {
     minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2854'
     embed files("libs/jfxrt.jar")
     embed files("libs/ime.jar")
+    // Media Foundation bindings for the Windows cg decoder (see MFVideoPlayer).
+    embed files("libs/jna-5.14.0.jar")
     implementation fg.deobf('software.bernie.geckolib:forge-1.12.2-geckolib:3.0.21')
     embed 'com.h2database:h2:2.1.214'
     embed 'com.github.luben:zstd-jni:1.5.6-9'

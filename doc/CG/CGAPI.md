@@ -148,8 +148,108 @@ CGAPI.addListener(new CgListener() {
 | 文件名非法 | 两端拒绝；客户端 `onFail` |
 | 本地无文件 | 请求服务器；服务器没有该文件时，客户端 20 秒无新分块 → `onFail("the server stopped sending the file")` |
 | 保存失败 | `onFail` |
-| 解码器未就绪 / 文件损坏 | `onFail`（旧版只打印到 stderr） |
+| 解码器未就绪 / 文件损坏 | `onFail`，失败文本里带 `[source=<URI>]`（旧版只打印到 stderr） |
 | 服务端并发请求过多 | 拒绝多余请求并记录 WARN（有界线程池） |
+
+### 排查用日志
+
+每次播放都会先打一行 INFO：
+
+```
+[FXVideoPlayer] Opening file:/C:/.../run/cg/test.mp4 (10802752 bytes)
+[FXVideoPlayer] Ready: 1280x720 (xxxxx ms)
+```
+
+如果只看到 `Opening` 然后 `MediaPlayer error: ... ERROR_MEDIA_INVALID`，说明文件路径没问题、是 JavaFX 打不开这个流。
+
+> **路径必须规范化**：dev 运行时游戏目录是 `"."`（dev 启动器不传 `--gameDir`），所以 `<mcDataDir>/cg` 的原始绝对路径是 `...\run\.\cg\x.mp4`，`File.toURI()` 会把它变成 `file:/.../run/./cg/x.mp4`。旧版传的是相对路径 `cg/x.mp4`，URI 里没有 `/./` 段。`CGFileManager.resolve()` 现在统一返回规范化路径（`getCanonicalFile`），保证交给 JavaFX 的 URI 与旧版一致。
+
+> **`MOD HAS DIRECT REFERENCE System.exit()` 警告是既有现象**：JavaFX 在第一次 `Scene.pulse()` 时会尝试退出工具包，Forge 拦截并打印该警告。它从旧版本起就存在，**不影响播放**，不要把它当成 `ERROR_MEDIA_INVALID` 的原因。
+
+### 已知环境问题：JavaFX 8 视频管线
+
+`Media` 能读出容器信息（`-Djfxmedia.loglevel=debug` 会打印 `** Frame size changed (1280, 720)`），但一旦挂上 `MediaView`（即需要视频 sink）就报 `ERROR_MEDIA_INVALID`。原因是 JRE 自带的 JavaFX 媒体栈里没有可用的视频 sink：
+
+- `jfxmedia.dll` 只链接 `gstreamer-lite.dll`；
+- `gstreamer-lite.dll` 里只有音频 sink（`directsoundsink` / `pulsesink` / `gstappsink`），没有视频 sink，也没有 H.264 解码器。
+
+这与 mod 无关：用仓库里的 [`tools/cgprobe/CgProbe.java`](../../tools/cgprobe/CgProbe.java) 可以在**不含任何 mod 代码**的纯 JavaFX 程序里复现同样的错误：
+
+```
+java -cp tools/cgprobe/out CgProbe run/cg/test.mp4
+# RESULT: ERROR MediaException: ... ERROR_MEDIA_INVALID
+```
+
+要恢复 CG 播放，只能换掉解码路径（例如引入纯 Java 的 H.264 解码器），或修复运行环境的 JavaFX 媒体栈。
+
+### 解码后端（Windows 走 Media Foundation）
+
+从这一版开始，CG 的解码后端按平台选择，接口仍是 `IVideoFrameProvider`：
+
+| 平台 | 后端 | 说明 |
+| --- | --- | --- |
+| Windows | `MFVideoPlayer`（Media Foundation + JNA） | 与 Windows Media Player 同一个解码引擎，支持 DXVA 硬解；不经过 JavaFX/DirectShow/GStreamer |
+| 其他平台 | `FXVideoPlayer`（JavaFX） | 保持原样 |
+
+选择逻辑在 `VideoPlaybackManager.createPlayer`：Windows 上先试 MF，`start()` 抛异常（打不开文件 / 初始化失败）就自动回退到 JavaFX，并打一条 WARN。日志里会明确写出用了哪个：
+
+```
+[VideoPlayback] Decoder: Media Foundation
+[MFVideoPlayer] Opened file:/.../run/cg/test.mp4 (1280x720, 269167 ms)
+```
+
+或：
+
+```
+[VideoPlayback] Decoder: JavaFX
+```
+
+依赖：`libs/jna-5.14.0.jar`（1.8 MB，已在 `build.gradle` 里 `embed`）。
+
+**JavaFX 不再在启动时初始化。** `Main.init` 里原来会 `new JFXPanel()`，在 JavaFX 原生栈起不来的机器上（典型：Linux 缺 GTK2）会直接 NPE 并把整个游戏拖垮：
+
+```
+java.lang.NullPointerException
+    at com.sun.glass.ui.Application.run(Application.java:146)
+    at com.sun.javafx.tk.quantum.QuantumToolkit.startup(...)
+    at javafx.embed.swing.JFXPanel.<init>(...)
+```
+
+现在 JavaFX 只在**第一次真正要播放 CG** 时才启动，失败会被捕获、只记一次日志、不再重试，游戏继续运行：
+
+```
+[FXVideoPlayer] JavaFX toolkit is unavailable on this platform
+[VideoPlayback] CG xxx failed: JavaFX is not available on this platform (no JavaFX natives?)
+```
+
+Linux 上要让 JavaFX 路径可用，需要 GTK2 和几个 X 库（Ubuntu 24.04）：
+
+```
+sudo apt install libgtk2.0-0t64 libxtst6 libxxf86vm1 libgl1
+```
+
+装完仍不行的话，Linux 需要独立的解码后端（GStreamer/FFmpeg），目前没有实现。
+
+### 音频（MF 后端）
+
+音频由 `MFAudioPlayer` 负责，和视频同一个文件、同一条时间线：
+
+- 用 Media Foundation 把音轨解成 **PCM**（16bit），通过 Java Sound 的 `SourceDataLine` 播放；
+- 音频线程等视频的**第一帧时间戳**确定后才开始写数据，并把早于该时间戳的采样丢掉，因此音画从同一时间点起步；
+- `pause()` / `resume()` / `stop()` 会同步作用到音频；
+- 音频是**可选**的：没有音轨、没有声卡、格式不支持、MF 打不开，都只打一条 WARN，画面照常播放。
+
+日志：
+
+```
+[MFAudioPlayer] Playing audio 44100Hz 2ch 16bit
+[MFAudioPlayer] First PCM packet: 4096 bytes
+```
+
+**已知取舍**：音频走的是独立的 Java Sound 输出，音量跟 Minecraft 的"主音量"设置无关（固定 100%）。要接进 MC 的音量系统需要改成 OpenAL 流式源，可作为后续改进。
+
+
+
 
 ---
 

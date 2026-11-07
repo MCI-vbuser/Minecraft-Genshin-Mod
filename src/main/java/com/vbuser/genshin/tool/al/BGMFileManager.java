@@ -98,10 +98,12 @@ public class BGMFileManager {
             if (!target.equals(root) && !target.startsWith(root + File.separator)) {
                 throw new IllegalArgumentException("bgm file escapes the bgm directory: " + fileName);
             }
+            // Canonical form: avoids "...\run\.\bgm\x.ogg" URIs (the game directory is
+            // "." in a dev run) and keeps the URL handed to the sound engine clean.
+            return new File(target);
         } catch (IOException e) {
             throw new IllegalArgumentException("Cannot resolve bgm file: " + fileName, e);
         }
-        return file;
     }
 
     public static File getFile(String fileName) {

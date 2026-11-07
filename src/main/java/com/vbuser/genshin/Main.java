@@ -6,7 +6,6 @@ import com.vbuser.genshin.debug.CameraPos;
 import com.vbuser.genshin.proxy.CommonProxy;
 import com.vbuser.genshin.tool.al.event.BGMClientEventHandler;
 import com.vbuser.genshin.tool.al.command.CommandBGM;
-import com.vbuser.genshin.tool.cg.decoder.FXVideoPlayer;
 import com.vbuser.genshin.tool.cg.PlayerEventHandler;
 import com.vbuser.genshin.tool.cg.command.CommandCG;
 import com.vbuser.genshin.tool.forcesprint.KeyInputHandler;
@@ -54,8 +53,9 @@ public class Main {
             // Client only: these touch client classes (video decoder, sound system).
             MinecraftForge.EVENT_BUS.register(new PlayerEventHandler());
             MinecraftForge.EVENT_BUS.register(new BGMClientEventHandler());
-            // Initialize video decoder.
-            FXVideoPlayer.initJavaFX();
+            // JavaFX is started lazily on the first cg playback (FXVideoPlayer.start):
+            // booting the toolkit here crashes the whole game on machines where the
+            // JavaFX native stack cannot initialise (for example Linux without GTK2).
         }
         MinecraftForge.EVENT_BUS.register(new ServerEventHandler());
         // Register force sprint.

@@ -92,10 +92,14 @@ public class CGFileManager {
             if (!target.equals(root) && !target.startsWith(root + File.separator)) {
                 throw new IllegalArgumentException("cg file escapes the cg directory: " + fileName);
             }
+            // Return the canonical form on purpose. In a dev run the game directory is
+            // ".", so getAbsolutePath() yields "...\run\.\cg\x.mp4" and JavaFX builds its
+            // media URI from that path ("file:/.../run/./cg/x.mp4"). Canonicalizing keeps
+            // the URI identical to the one the old (relative) code produced.
+            return new File(target);
         } catch (IOException e) {
             throw new IllegalArgumentException("Cannot resolve cg file: " + fileName, e);
         }
-        return file;
     }
 
     public static File getFile(String fileName) {
