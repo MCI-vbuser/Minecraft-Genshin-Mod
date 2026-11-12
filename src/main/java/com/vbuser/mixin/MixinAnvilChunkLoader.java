@@ -2,7 +2,9 @@ package com.vbuser.mixin;
 
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
+import com.vbuser.inf.light.ColumnLight;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import net.minecraft.block.Block;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
@@ -40,79 +42,125 @@ public abstract class MixinAnvilChunkLoader {
     @Unique
     private static final int INF_FORMAT_PALETTE = 3;
 
+    /**
+     * Present only when the extended light arrays of this chunk are known to
+     * match its blocks (i.e. they were written by a version that maintains
+     * them). Old chunks do not have it and get a full column rebuild.
+     */
+    @Unique
+    private static final String INF_LIGHT = "inf:Light";
+
+    /**
+     * Bumped whenever the light semantics change, so data written by an older
+     * (and possibly wrong) engine is thrown away instead of being trusted.
+     * Version 1 was the first "everything is 15 / bounded BFS" attempt; those
+     * arrays look plausible but are wrong, so they must never be reused.
+     */
+    @Unique
+    private static final int INF_LIGHT_VERSION = 3;
+
     @Inject(
             method = "writeChunkToNBT(Lnet/minecraft/world/chunk/Chunk;Lnet/minecraft/world/World;Lnet/minecraft/nbt/NBTTagCompound;)V",
             at = @At("TAIL")
     )
     private void inf$writeChunkToNBT(Chunk chunk, World world, NBTTagCompound nbt, CallbackInfo ci) {
         ExtendedColumn col = ColumnManager.getIfPresent(chunk);
-        if (col == null || col.isEmpty()) {
+        if (col == null) {
             nbt.removeTag(INF_SECTIONS);
             nbt.removeTag(INF_FORMAT);
+            nbt.removeTag(INF_LIGHT);
+            return;
+        }
+
+        ColumnLight light = col.getLight();
+        IntSet sectionYs = light.sectionYs();
+        if (sectionYs.isEmpty()) {
+            nbt.removeTag(INF_SECTIONS);
+            nbt.removeTag(INF_FORMAT);
+            nbt.removeTag(INF_LIGHT);
             return;
         }
 
         NBTTagList sections = new NBTTagList();
-        for (Map.Entry<Integer, ExtendedBlockStorage> entry : col.getSections().entrySet()) {
-            ExtendedBlockStorage ebs = entry.getValue();
-            if (ebs.isEmpty()) {
-                continue;
-            }
-
-            BitSet nonAir = col.getNonAir(entry.getKey());
-            if (nonAir == null || nonAir.isEmpty()) {
-                continue;
-            }
-
-            // Palette + byte indices: usually 4 KiB per section instead of
-            // one NBT compound per block or 16 KiB of raw state ids.
-            int[] palette = new int[16];
-            int paletteSize = 1;
-            palette[0] = Block.getStateId(Blocks.AIR.getDefaultState());
-            Int2IntOpenHashMap paletteLookup = new Int2IntOpenHashMap();
-            paletteLookup.defaultReturnValue(-1);
-            paletteLookup.put(palette[0], 0);
-
-            int[] indices = new int[4096];
-            for (int index = nonAir.nextSetBit(0); index >= 0; index = nonAir.nextSetBit(index + 1)) {
-                IBlockState state = ebs.get(
-                        ExtendedColumn.indexX(index),
-                        ExtendedColumn.indexY(index),
-                        ExtendedColumn.indexZ(index));
-                int stateId = Block.getStateId(state);
-                int paletteIndex = paletteLookup.get(stateId);
-                if (paletteIndex < 0) {
-                    if (paletteSize == palette.length) {
-                        palette = Arrays.copyOf(palette, palette.length * 2);
-                    }
-                    paletteIndex = paletteSize++;
-                    palette[paletteIndex] = stateId;
-                    paletteLookup.put(stateId, paletteIndex);
-                }
-                indices[index] = paletteIndex;
-            }
-
+        for (int sectionY : sectionYs) {
             NBTTagCompound sec = new NBTTagCompound();
-            sec.setInteger("Y", entry.getKey());
-            sec.setTag("Palette", new NBTTagIntArray(Arrays.copyOf(palette, paletteSize)));
-            if (paletteSize <= 256) {
-                byte[] packed = new byte[4096];
-                for (int i = 0; i < 4096; i++) {
-                    packed[i] = (byte) indices[i];
+            sec.setInteger("Y", sectionY);
+            boolean wrote = false;
+
+            ExtendedBlockStorage ebs = col.getSection(sectionY);
+            BitSet nonAir = col.getNonAir(sectionY);
+            if (ebs != null && nonAir != null && !nonAir.isEmpty()) {
+                // Palette + byte indices: usually 4 KiB per section instead of
+                // one NBT compound per block or 16 KiB of raw state ids.
+                int[] palette = new int[16];
+                int paletteSize = 1;
+                palette[0] = Block.getStateId(Blocks.AIR.getDefaultState());
+                Int2IntOpenHashMap paletteLookup = new Int2IntOpenHashMap();
+                paletteLookup.defaultReturnValue(-1);
+                paletteLookup.put(palette[0], 0);
+
+                int[] indices = new int[4096];
+                for (int index = nonAir.nextSetBit(0); index >= 0; index = nonAir.nextSetBit(index + 1)) {
+                    IBlockState state = ebs.get(
+                            ExtendedColumn.indexX(index),
+                            ExtendedColumn.indexY(index),
+                            ExtendedColumn.indexZ(index));
+                    int stateId = Block.getStateId(state);
+                    int paletteIndex = paletteLookup.get(stateId);
+                    if (paletteIndex < 0) {
+                        if (paletteSize == palette.length) {
+                            palette = Arrays.copyOf(palette, palette.length * 2);
+                        }
+                        paletteIndex = paletteSize++;
+                        palette[paletteIndex] = stateId;
+                        paletteLookup.put(stateId, paletteIndex);
+                    }
+                    indices[index] = paletteIndex;
                 }
-                sec.setTag("Indices", new NBTTagByteArray(packed));
-            } else {
-                sec.setTag("Indices", new NBTTagIntArray(indices));
+
+                sec.setTag("Palette", new NBTTagIntArray(Arrays.copyOf(palette, paletteSize)));
+                if (paletteSize <= 256) {
+                    byte[] packed = new byte[4096];
+                    for (int i = 0; i < 4096; i++) {
+                        packed[i] = (byte) indices[i];
+                    }
+                    sec.setTag("Indices", new NBTTagByteArray(packed));
+                } else {
+                    sec.setTag("Indices", new NBTTagIntArray(indices));
+                }
+                wrote = true;
             }
-            sections.appendTag(sec);
+
+            // A section that only holds light (caves, the air under a roof)
+            // has no block list but must still be saved.
+            byte[] skyLight = light.getSkyLightData(sectionY);
+            if (skyLight != null) {
+                sec.setTag("SkyLight", new NBTTagByteArray(skyLight));
+                wrote = true;
+            }
+            byte[] blockLight = light.getBlockLightData(sectionY);
+            if (blockLight != null) {
+                sec.setTag("BlockLight", new NBTTagByteArray(blockLight));
+                wrote = true;
+            }
+
+            if (wrote) {
+                sections.appendTag(sec);
+            }
         }
 
         if (sections.tagCount() > 0) {
             nbt.setTag(INF_SECTIONS, sections);
             nbt.setInteger(INF_FORMAT, INF_FORMAT_PALETTE);
+            if (light.isTrusted()) {
+                nbt.setInteger(INF_LIGHT, INF_LIGHT_VERSION);
+            } else {
+                nbt.removeTag(INF_LIGHT);
+            }
         } else {
             nbt.removeTag(INF_SECTIONS);
             nbt.removeTag(INF_FORMAT);
+            nbt.removeTag(INF_LIGHT);
         }
     }
 
@@ -128,6 +176,7 @@ public abstract class MixinAnvilChunkLoader {
         }
 
         ExtendedColumn col = ColumnManager.get(chunk);
+        ColumnLight light = col.getLight();
         boolean storeSky = world.provider.hasSkyLight();
         int format = nbt.getInteger(INF_FORMAT);
 
@@ -135,6 +184,16 @@ public abstract class MixinAnvilChunkLoader {
         for (int i = 0; i < sections.tagCount(); i++) {
             NBTTagCompound sec = sections.getCompoundTagAt(i);
             int sectionY = sec.getInteger("Y");
+
+            // Light first: it is stored independently of the block list, and a
+            // light only section has no Palette at all.
+            if (sec.hasKey("SkyLight", 7)) {
+                light.putSkyLightData(sectionY, sec.getByteArray("SkyLight"));
+            }
+            if (sec.hasKey("BlockLight", 7)) {
+                light.putBlockLightData(sectionY, sec.getByteArray("BlockLight"));
+            }
+
             ExtendedBlockStorage ebs = new ExtendedBlockStorage(sectionY << 4, storeSky);
 
             if (format >= INF_FORMAT_PALETTE
@@ -182,6 +241,12 @@ public abstract class MixinAnvilChunkLoader {
 
             col.putSection(sectionY, ebs);
         }
+
+        // Arrays written by a version that maintains them are consistent with
+        // the blocks; anything else (in particular the old "everything is 15"
+        // saves) is dropped and derived from the blocks again by the engine.
+        boolean trusted = nbt.getInteger(INF_LIGHT) >= INF_LIGHT_VERSION;
+        light.onChunkLoaded(world, trusted);
     }
 
     @Unique

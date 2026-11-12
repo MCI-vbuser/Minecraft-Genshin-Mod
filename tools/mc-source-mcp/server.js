@@ -676,7 +676,7 @@ function handleRequest(message) {
       protocolVersion: typeof params?.protocolVersion === 'string' ? params.protocolVersion : MCP_PROTOCOL_FALLBACK,
       capabilities: { tools: { listChanged: false }, resources: { listChanged: false } },
       serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-      instructions: INSTRUCTIONS,
+      instructions: '',
     });
     return;
   }

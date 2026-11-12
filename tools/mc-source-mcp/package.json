@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Minecraft Source Bridge: indexes decompiled Forge 1.12.2 Minecraft/Forge sources and connects IntelliJ IDEA's MCP server.",
+  "description": "Minecraft Source Bridge: indexes decompiled Forge 1.12.2 sources, reads every External Library through IntelliJ IDEA, and toggles per conversation from a grass-block composer button.",
   "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
+    "index.js",
+    "client.js",
     "server.js",
     "idea-bridge.js",
     "idea-tools.json",
@@ -20,6 +24,11 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
     }
   }
 }

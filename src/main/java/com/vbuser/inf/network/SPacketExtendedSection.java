@@ -10,6 +10,10 @@ import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
  * low 8 bits of a short, so it cannot address Y outside 0..255. This packet
  * carries the section Y explicitly and sends up to 4096 positions in one
  * message.</p>
+ *
+ * <p>Light is not sent: both sides run the same {@code ExtendedLightEngine}
+ * over the same blocks and the same vanilla light, so each side derives the
+ * same values without 4 KiB of stale arrays per section.</p>
  */
 public class SPacketExtendedSection implements IMessage {
 
@@ -61,4 +65,3 @@ public class SPacketExtendedSection implements IMessage {
         }
     }
 }
-

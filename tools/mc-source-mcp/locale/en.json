@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Minecraft Source Bridge",
-    "description": "Indexes decompiled Forge 1.12.2 Minecraft/Forge sources and gives the model class search, member outlines, and line-accurate reads. Optionally bridges IntelliJ IDEA's MCP server for project-aware code intelligence."
+    "description": "Indexes decompiled Forge 1.12.2 Minecraft/Forge sources and makes every project External Library (GeckoLib, Mixin, H2, Guava, Netty, ...) readable as line-addressable source through IntelliJ IDEA. Toggle it per conversation with the grass-block button next to Send."
   }
 }

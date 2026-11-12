@@ -4,6 +4,8 @@ import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.InfiniteHeight;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
+import com.vbuser.inf.light.ExtendedLightEngine;
+import com.vbuser.inf.light.ExtendedWorldLight;
 import com.vbuser.inf.network.SPacketExtendedTileEntity;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEventData;
@@ -18,7 +20,6 @@ import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
-import net.minecraft.world.chunk.EmptyChunk;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -32,10 +33,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Mixin(World.class)
-public abstract class MixinWorld {
+public abstract class MixinWorld implements ExtendedWorldLight {
 
     @Unique
     private final List<BlockEventData> inf$extendedBlockEvents = new ArrayList<>();
+
+    @Unique
+    private ExtendedLightEngine inf$lightEngine;
+
+    @Unique
+    @Override
+    public synchronized ExtendedLightEngine inf$lightEngine() {
+        if (this.inf$lightEngine == null) {
+            this.inf$lightEngine = new ExtendedLightEngine((World) (Object) this);
+        }
+        return this.inf$lightEngine;
+    }
 
     @Inject(
             method = "addBlockEvent(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/Block;II)V",
@@ -86,6 +99,21 @@ public abstract class MixinWorld {
     }
 
     /**
+     * Drain the extended light queues with a per tick budget. Light has to be
+     * fully propagated before the frame is drawn, so this runs at the very end
+     * of the world tick, on both sides.
+     */
+    @Inject(
+            method = "updateEntities",
+            at = @At("TAIL")
+    )
+    private void inf$tickLightEngine(CallbackInfo ci) {
+        if (this.inf$lightEngine != null) {
+            this.inf$lightEngine.tick();
+        }
+    }
+
+    /**
      * Route World.setBlockState's chunk write through the extended column while
      * preserving the caller's flags. World.setBlockState itself then performs
      * light checks and {@code markAndNotifyBlock} exactly as for vanilla blocks.
@@ -99,7 +127,7 @@ public abstract class MixinWorld {
     )
     private IBlockState inf$setExtendedBlockState(Chunk chunk, BlockPos chunkPos, IBlockState chunkState,
                                                   BlockPos pos, IBlockState newState, int flags) {
-        if (!HeightConstants.isExtendedY(chunkPos.getY()) || chunk instanceof EmptyChunk) {
+        if (!HeightConstants.isExtendedY(chunkPos.getY())) {
             return chunk.setBlockState(chunkPos, chunkState);
         }
 
@@ -196,15 +224,113 @@ public abstract class MixinWorld {
         cir.setReturnValue(!HeightConstants.isValidY(pos.getY()));
     }
 
+    /**
+     * Extended light is owned by {@link ExtendedLightEngine}; vanilla's bounded
+     * BFS must not run for those cells or the two would fight over them.
+     */
     @Inject(
-            method = "checkLightFor(Lnet/minecraft/world/EnumSkyBlock;Lnet/minecraft/util/math/BlockPos;)Z",
+            method = "checkLight(Lnet/minecraft/util/math/BlockPos;)Z",
             at = @At("HEAD"),
             cancellable = true
     )
-    private void inf$checkLightFor(EnumSkyBlock lightType, BlockPos pos,
-                                   CallbackInfoReturnable<Boolean> cir) {
+    private void inf$checkLight(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
         if (HeightConstants.isExtendedY(pos.getY())) {
             cir.setReturnValue(false);
+        }
+    }
+
+    /**
+     * {@code getLightFor} clamps Y into {@code 0..255}; extended Y is served
+     * straight from the chunk, which routes it to the column light.
+     */
+    @Inject(
+            method = "getLightFor(Lnet/minecraft/world/EnumSkyBlock;Lnet/minecraft/util/math/BlockPos;)I",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void inf$getLightFor(EnumSkyBlock type, BlockPos pos,
+                                 CallbackInfoReturnable<Integer> cir) {
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        World self = (World) (Object) this;
+        if (!self.isValid(pos) || !self.isBlockLoaded(pos)) {
+            cir.setReturnValue(type.defaultLightValue);
+            return;
+        }
+        cir.setReturnValue(self.getChunkFromBlockCoords(pos).getLightFor(type, pos));
+    }
+
+    /** Same clamp removal for {@code World.getLight}, used by entities. */
+    @Inject(
+            method = "getLight(Lnet/minecraft/util/math/BlockPos;)I",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void inf$getLight(BlockPos pos, CallbackInfoReturnable<Integer> cir) {
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        World self = (World) (Object) this;
+        cir.setReturnValue(self.getChunkFromBlockCoords(pos).getLightSubtracted(pos, 0));
+    }
+
+    @Inject(
+            method = "getLight(Lnet/minecraft/util/math/BlockPos;Z)I",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void inf$getLight(BlockPos pos, boolean checkNeighbors,
+                              CallbackInfoReturnable<Integer> cir) {
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        cir.setReturnValue(inf$extendedLight(pos, checkNeighbors));
+    }
+
+    @Unique
+    private int inf$extendedLight(BlockPos pos, boolean checkNeighbors) {
+        World self = (World) (Object) this;
+        int x = pos.getX();
+        int z = pos.getZ();
+        if (x < -30000000 || z < -30000000 || x >= 30000000 || z >= 30000000) {
+            return 15;
+        }
+        if (checkNeighbors && self.getBlockState(pos).useNeighborBrightness()) {
+            int max = self.getLight(pos.up(), false);
+            int value = self.getLight(pos.east(), false);
+            if (value > max) {
+                max = value;
+            }
+            value = self.getLight(pos.west(), false);
+            if (value > max) {
+                max = value;
+            }
+            value = self.getLight(pos.south(), false);
+            if (value > max) {
+                max = value;
+            }
+            value = self.getLight(pos.north(), false);
+            if (value > max) {
+                max = value;
+            }
+            return max;
+        }
+        return self.getChunkFromBlockCoords(pos).getLightSubtracted(pos, self.getSkylightSubtracted());
+    }
+
+    /**
+     * Extended coordinates have no vanilla render section to notify; the seam
+     * layers are mirrored onto their vanilla neighbour by the engine instead.
+     */
+    @Inject(
+            method = "notifyLightSet(Lnet/minecraft/util/math/BlockPos;)V",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void inf$notifyLightSet(BlockPos pos, CallbackInfo ci) {
+        if (HeightConstants.isExtendedY(pos.getY())) {
+            ci.cancel();
         }
     }
 

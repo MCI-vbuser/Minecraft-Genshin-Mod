@@ -18,9 +18,11 @@
     "MixinWorld"
   ],
   "client": [
+    "MixinChunkCache",
     "MixinEntityPlayerSP",
     "MixinMinecraft",
-    "MixinRenderGlobal"
+    "MixinRenderGlobal",
+    "MixinWorldLight"
   ],
   "server": []
 }

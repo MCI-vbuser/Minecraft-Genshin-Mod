@@ -27,7 +27,7 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
     @Override
     public ExtendedColumn inf$getExtendedColumn(boolean create) {
         if (this.inf$extendedColumn == null && create) {
-            this.inf$extendedColumn = new ExtendedColumn();
+            this.inf$extendedColumn = new ExtendedColumn((Chunk) (Object) this);
         }
         return this.inf$extendedColumn;
     }
@@ -79,6 +79,30 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
         cir.setReturnValue(oldState);
     }
 
+    /**
+     * Vanilla height map changes are the only way the {@code 0..255} part of a
+     * column can affect extended Y: as long as it holds a blocking block every
+     * {@code Y < 0} cell is shadowed, and once it is empty the extended top
+     * alone decides. Detecting that transition here keeps {@code relightBlock},
+     * {@code generateSkylightMap} and {@code heightMap} untouched.
+     */
+    @Inject(
+            method = "setBlockState(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/block/state/IBlockState;",
+            at = @At("RETURN")
+    )
+    private void inf$onVanillaHeightChanged(BlockPos pos, IBlockState state,
+                                            CallbackInfoReturnable<IBlockState> cir) {
+        if (HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        if (column == null) {
+            return;
+        }
+        column.getLight().onVanillaHeightChanged(
+                ((Chunk) (Object) this).getWorld(), pos.getX() & 15, pos.getZ() & 15);
+    }
+
     @Inject(
             method = "setLightFor(Lnet/minecraft/world/EnumSkyBlock;Lnet/minecraft/util/math/BlockPos;I)V",
             at = @At("HEAD"),
@@ -86,9 +110,13 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
     )
     private void inf$setLightFor(EnumSkyBlock type, BlockPos pos, int value,
                                  CallbackInfo ci) {
-        if (HeightConstants.isExtendedY(pos.getY())) {
-            ci.cancel();
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
         }
+        Chunk self = (Chunk) (Object) this;
+        ColumnManager.get(self).getLight().setLightFor(type, pos.getX(), pos.getY(), pos.getZ(), value);
+        self.markDirty();
+        ci.cancel();
     }
 
     @Inject(
@@ -98,8 +126,75 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
     )
     private void inf$getLightFor(EnumSkyBlock type, BlockPos pos,
                                  CallbackInfoReturnable<Integer> cir) {
-        if (HeightConstants.isExtendedY(pos.getY())) {
-            cir.setReturnValue(15);
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
         }
+        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        if (column == null) {
+            cir.setReturnValue(inf$defaultLight(type, pos.getX(), pos.getY(), pos.getZ()));
+            return;
+        }
+        cir.setReturnValue(column.getLight().getLightFor(type, pos.getX(), pos.getY(), pos.getZ()));
+    }
+
+    @Inject(
+            method = "getLightSubtracted(Lnet/minecraft/util/math/BlockPos;I)I",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void inf$getLightSubtracted(BlockPos pos, int amount,
+                                        CallbackInfoReturnable<Integer> cir) {
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        if (column == null) {
+            int sky = 0;
+            if (inf$defaultLight(EnumSkyBlock.SKY, pos.getX(), pos.getY(), pos.getZ()) > 0) {
+                sky = EnumSkyBlock.SKY.defaultLightValue - amount;
+                if (sky < 0) {
+                    sky = 0;
+                }
+            }
+            cir.setReturnValue(sky);
+            return;
+        }
+        cir.setReturnValue(column.getLight().getLightSubtracted(
+                pos.getX(), pos.getY(), pos.getZ(), amount));
+    }
+
+    @Inject(
+            method = "canSeeSky(Lnet/minecraft/util/math/BlockPos;)Z",
+            at = @At("HEAD"),
+            cancellable = true
+    )
+    private void inf$canSeeSky(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        if (column == null) {
+            cir.setReturnValue(inf$defaultLight(EnumSkyBlock.SKY, pos.getX(), pos.getY(), pos.getZ()) > 0);
+            return;
+        }
+        cir.setReturnValue(column.getLight().canSeeSky(pos.getX(), pos.getY(), pos.getZ()));
+    }
+
+    /**
+     * Light value of an extended cell when the chunk has no extended column at
+     * all. Extended Y is never stored in the vanilla arrays, so the answer is
+     * the pure column model: 15 above the vanilla height map, 0 below it.
+     */
+    @Unique
+    private int inf$defaultLight(EnumSkyBlock type, int x, int y, int z) {
+        if (type != EnumSkyBlock.SKY) {
+            return 0;
+        }
+        Chunk self = (Chunk) (Object) this;
+        if (!self.getWorld().provider.hasSkyLight()) {
+            return 0;
+        }
+        int top = self.getHeightValue(x & 15, z & 15);
+        return top == 0 || y >= top ? EnumSkyBlock.SKY.defaultLightValue : 0;
     }
 }

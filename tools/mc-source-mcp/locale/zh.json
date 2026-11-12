@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Minecraft 源码桥",
-    "description": "索引 Forge 1.12.2 的反编译 Minecraft/Forge 源码，为模型提供类搜索、成员大纲与按行读取；并可接入 IntelliJ IDEA 的 MCP Server 获得工程级代码智能。"
+    "description": "索引 Forge 1.12.2 反编译源码，并通过 IntelliJ IDEA 让整个 External Libraries（GeckoLib、Mixin、H2、Guava、Netty 等）都能按行读取反编译源码。用发送键旁的小草方块按钮按对话开关。"
   }
 }

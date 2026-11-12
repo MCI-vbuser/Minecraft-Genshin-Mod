@@ -24,3 +24,5 @@
           IDEA_PROJECT_PATH: 'C:/Users/ASUS/Desktop/mdk'
         failOnStartupError: true
         toolCallTimeoutMs: 300000
+    - id: mc-source-toggle
+      name: '@local/mc-source'

@@ -1,5 +1,6 @@
 package com.vbuser.inf.chunk;
 
+import com.vbuser.inf.light.ColumnLight;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockLiquid;
@@ -20,15 +21,35 @@ import java.util.Map;
  * <p>Sections are keyed by an int section Y and every section also keeps a
  * 4096-bit non-air bitmap. Render, network and save paths iterate only the set
  * bits instead of scanning all 4096 positions of every section.</p>
+ *
+ * <p>The column also owns the {@link ColumnLight} of the chunk, because light
+ * sections are keyed exactly like block sections but must survive independently
+ * of them (a cave under a roof has light but no blocks in most of its
+ * sections).</p>
  */
 public class ExtendedColumn {
 
     private static final int SECTION_VOLUME = 4096;
 
+    private final Chunk chunk;
+    private final ColumnLight light;
     private final Int2ObjectOpenHashMap<ExtendedBlockStorage> sections = new Int2ObjectOpenHashMap<>();
     private final Int2ObjectOpenHashMap<BitSet> nonAir = new Int2ObjectOpenHashMap<>();
 
     public static boolean allowFluidToCreateNewSections = false;
+
+    public ExtendedColumn(Chunk chunk) {
+        this.chunk = chunk;
+        this.light = new ColumnLight(this);
+    }
+
+    public Chunk getChunk() {
+        return this.chunk;
+    }
+
+    public ColumnLight getLight() {
+        return this.light;
+    }
 
     public Map<Integer, ExtendedBlockStorage> getSections() {
         return sections;
@@ -74,6 +95,40 @@ public class ExtendedColumn {
     }
 
     /**
+     * Store one block without any callback, block update or light work.
+     *
+     * <p>Used by the client section packet: a vanilla style per block
+     * {@code setBlockState} would run 4096 block lifecycles and light checks for
+     * one packet. The caller re-derives the column top and lighting
+     * afterwards.</p>
+     */
+    public void importBlock(int x, int y, int z, IBlockState state) {
+        int sectionY = y >> 4;
+        ExtendedBlockStorage section = sections.get(sectionY);
+        BitSet bits = nonAir.get(sectionY);
+        if (section == null) {
+            if (state.getBlock() == Blocks.AIR) {
+                return;
+            }
+            section = new ExtendedBlockStorage(sectionY << 4, this.chunk.getWorld().provider.hasSkyLight());
+            sections.put(sectionY, section);
+            bits = new BitSet(SECTION_VOLUME);
+            nonAir.put(sectionY, bits);
+        }
+        int index = indexOf(x, y, z);
+        section.set(x & 15, y & 15, z & 15, state);
+        if (state.getBlock() == Blocks.AIR) {
+            bits.clear(index);
+        } else {
+            bits.set(index);
+        }
+        if (this.chunk.getWorld().isRemote) {
+            // A bulk import still has to invalidate the section mesh.
+            com.vbuser.inf.light.LightRenderHook.cellChanged(this.chunk.getWorld(), x, y, z);
+        }
+    }
+
+    /**
      * Store one extended block.
      *
      * <p>Neighbor updates / client notifications are intentionally NOT done
@@ -85,6 +140,7 @@ public class ExtendedColumn {
         int sectionY = y >> 4;
         ExtendedBlockStorage section = sections.get(sectionY);
         BitSet bits = nonAir.get(sectionY);
+        boolean created = false;
 
         if (section == null) {
             if (newState.getBlock() == Blocks.AIR) {
@@ -98,12 +154,17 @@ public class ExtendedColumn {
             sections.put(sectionY, section);
             bits = new BitSet(SECTION_VOLUME);
             nonAir.put(sectionY, bits);
+            created = true;
         }
 
         IBlockState oldState = section.get(x & 15, y & 15, z & 15);
         if (oldState == newState) {
             return null;
         }
+
+        // Sky light is column based: capture the top before the write so the
+        // relight can tell whether the column got more open or more blocked.
+        int oldTop = light.top(x & 15, z & 15);
 
         int index = indexOf(x, y, z);
         section.set(x & 15, y & 15, z & 15, newState);
@@ -114,6 +175,23 @@ public class ExtendedColumn {
             bits.set(index);
         } else if (!oldAir && newAir) {
             bits.clear(index);
+        }
+
+        light.onBlockChanged(world, x, y, z, oldState, newState, oldTop);
+        if (world.isRemote) {
+            // The section mesh bakes the block into its vertices.
+            com.vbuser.inf.light.LightRenderHook.cellChanged(world, x, y, z);
+        }
+        if (created) {
+            light.onSectionCreated(world, sectionY);
+        }
+
+        // A block sitting in the Y=-1 / Y=256 seam changes the occlusion the
+        // vanilla render section next to it sees at its border, so that mesh has
+        // to be rebuilt even though the block itself is not part of it.
+        if ((y == -1 || y == 256) && world.isRemote) {
+            BlockPos seam = new BlockPos(x, y == -1 ? 0 : 255, z);
+            world.markBlockRangeForRenderUpdate(seam, seam);
         }
 
         Block oldBlock = oldState.getBlock();
