@@ -8,7 +8,7 @@ import net.minecraft.client.gui.GuiScreen;
  * Full screen cg overlay.
  *
  * <p>The actual video quad is drawn by {@link PlayerEventHandler}; this screen only owns
- * the lifecycle and the "restore whatever GUI was open before" behaviour, so a cg started
+ * the lifecycle and the "restore whatever GUI was open before" behavior, so a cg started
  * from a menu no longer dumps the player into the world with no GUI.</p>
  */
 public class GuiVideoOverlay extends GuiScreen {

@@ -290,7 +290,7 @@ public class BGMPlayer {
 
     /** Called from the chunk packet on the client thread. */
     public void receiveChunk(String fileName, int index, int total, byte[] data) {
-        if (!BGMFileManager.isValidName(fileName) || total <= 0 || index < 0 || index >= total) {
+        if (!BGMFileManager.isValidName(fileName) || index < 0 || index >= total) {
             return;
         }
         if (data == null) {

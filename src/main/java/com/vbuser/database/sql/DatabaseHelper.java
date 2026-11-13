@@ -26,6 +26,7 @@ import java.util.Map;
  * {@link SqlExecutionResult#error(String)}. Mod authors should normally talk to
  * {@link SqlApi} instead, which adds side handling, timeouts and permissions.</p>
  */
+@SuppressWarnings("unused")
 public class DatabaseHelper {
 
     private static final Logger LOGGER = LogManager.getLogger("H2DataMod");
@@ -136,7 +137,7 @@ public class DatabaseHelper {
         if (sql == null || sql.trim().isEmpty()) {
             return SqlExecutionResult.error("SQL statement must not be empty.");
         }
-        if (readOnly && !isReadStatement(sql)) {
+        if (readOnly && isReadStatement(sql)) {
             return SqlExecutionResult.error("Database is read only: only SELECT/WITH statements are allowed.");
         }
         try (Connection connection = openConnection()) {
@@ -250,7 +251,7 @@ public class DatabaseHelper {
 
     private static SqlExecutionResult executeOn(Connection connection, String sql, List<Object> params) throws SQLException {
         List<Object> bound = params == null ? Collections.emptyList() : params;
-        if (readOnly && !isReadStatement(sql)) {
+        if (readOnly && isReadStatement(sql)) {
             return SqlExecutionResult.error("Database is read only: only SELECT/WITH statements are allowed.");
         }
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -312,7 +313,7 @@ public class DatabaseHelper {
         if (value instanceof String) {
             String text = (String) value;
             if (text.length() > 8 && text.getBytes(StandardCharsets.UTF_8).length > SqlValueCodec.MAX_TEXT_BYTES) {
-                return truncateUtf8(text, SqlValueCodec.MAX_TEXT_BYTES - 32)
+                return truncateUtf8(text)
                         + "...<truncated " + text.length() + " chars>";
             }
             return text;
@@ -328,13 +329,13 @@ public class DatabaseHelper {
         return value;
     }
 
-    private static String truncateUtf8(String text, int maxBytes) {
-        StringBuilder builder = new StringBuilder(Math.min(text.length(), maxBytes));
+    private static String truncateUtf8(String text) {
+        StringBuilder builder = new StringBuilder(Math.min(text.length(), 30688));
         int bytes = 0;
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
             int size = c < 0x80 ? 1 : (c < 0x800 ? 2 : 3);
-            if (bytes + size > maxBytes) {
+            if (bytes + size > 30688) {
                 break;
             }
             builder.append(c);
@@ -345,11 +346,11 @@ public class DatabaseHelper {
 
     static boolean isReadStatement(String sql) {
         if (sql == null) {
-            return false;
+            return true;
         }
         String trimmed = sql.trim().toUpperCase();
-        return trimmed.startsWith("SELECT") || trimmed.startsWith("WITH")
-                || trimmed.startsWith("SHOW") || trimmed.startsWith("EXPLAIN");
+        return !trimmed.startsWith("SELECT") && !trimmed.startsWith("WITH")
+                && !trimmed.startsWith("SHOW") && !trimmed.startsWith("EXPLAIN");
     }
 
     private static String describe(Exception e) {

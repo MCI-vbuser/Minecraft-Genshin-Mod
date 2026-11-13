@@ -28,6 +28,9 @@ public abstract class MixinBlockPistonBase {
         if (y > HeightConstants.VANILLA_MIN_Y && y < HeightConstants.VANILLA_MAX_Y) {
             return;
         }
+        if (!HeightConstants.isExtendedWorld(worldIn)) {
+            return;
+        }
 
         Block block = blockStateIn.getBlock();
 

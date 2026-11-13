@@ -100,7 +100,7 @@ public class ExtendedColumn {
      * <p>Used by the client section packet: a vanilla style per block
      * {@code setBlockState} would run 4096 block lifecycles and light checks for
      * one packet. The caller re-derives the column top and lighting
-     * afterwards.</p>
+     * afterward.</p>
      */
     public void importBlock(int x, int y, int z, IBlockState state) {
         int sectionY = y >> 4;
@@ -136,7 +136,7 @@ public class ExtendedColumn {
      * {@code markAndNotifyBlock} with the real flags. This method only handles
      * storage, block lifecycle callbacks and tile entities.</p>
      */
-    public IBlockState setBlock(World world, int x, int y, int z, IBlockState newState, int flags) {
+    public IBlockState setBlock(World world, int x, int y, int z, IBlockState newState, int ignored) {
         int sectionY = y >> 4;
         ExtendedBlockStorage section = sections.get(sectionY);
         BitSet bits = nonAir.get(sectionY);
@@ -162,7 +162,7 @@ public class ExtendedColumn {
             return null;
         }
 
-        // Sky light is column based: capture the top before the write so the
+        // Skylight is column based: capture the top before the write so the
         // relight can tell whether the column got more open or more blocked.
         int oldTop = light.top(x & 15, z & 15);
 

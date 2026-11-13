@@ -145,16 +145,6 @@ public class PacketQueueManager {
         return queues.size();
     }
 
-    public int queuedPackets(Object target) {
-        QueueEntry entry = queues.get(target);
-        if (entry == null) {
-            return 0;
-        }
-        synchronized (entry) {
-            return entry.packetCount;
-        }
-    }
-
     private int encodedSize(ModPacket packet) {
         ByteBuf temp = Unpooled.buffer();
         try {

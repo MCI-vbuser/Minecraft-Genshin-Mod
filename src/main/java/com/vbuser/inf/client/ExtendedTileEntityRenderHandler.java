@@ -24,46 +24,68 @@ import java.util.List;
 @Mod.EventBusSubscriber(modid = InfiniteHeight.MODID, value = Side.CLIENT)
 public class ExtendedTileEntityRenderHandler {
 
-    private static final int CHUNK_RADIUS = 6;
-    private static final double MAX_DIST_SQ = 96.0 * 96.0;
+    private static final List<TileEntity> VISIBLE = new ArrayList<>();
 
     @SubscribeEvent
     public static void onRenderWorldLast(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
         World world = mc.world;
         Entity view = mc.getRenderViewEntity();
-        if (world == null || view == null) return;
+        if (view == null || !HeightConstants.isExtendedWorld(world)) {
+            VISIBLE.clear();
+            return;
+        }
 
         float partial = event.getPartialTicks();
         double vx = view.lastTickPosX + (view.posX - view.lastTickPosX) * partial;
         double vy = view.lastTickPosY + (view.posY - view.lastTickPosY) * partial;
         double vz = view.lastTickPosZ + (view.posZ - view.lastTickPosZ) * partial;
 
+        // Same radius the block renderer and vanilla use.
+        int radius = Math.max(2, mc.gameSettings.renderDistanceChunks) + 1;
+        // Vertical is far more generous: looking down at a build below you is
+        // the normal case for this mod, and frustum culling is not applied to
+        // tile entities.
+        double maxDistSq = (radius * 16.0 + 16) * (radius * 16.0 + 16);
+
         // Iterate chunks around the camera instead of every tile entity in the
         // world twice per frame. Extended tile entities live in the chunk's own
         // tileEntities map (World.setTileEntity -> Chunk.addTileEntity).
-        List<TileEntity> visible = new ArrayList<>();
-        for (int cx = view.chunkCoordX - CHUNK_RADIUS; cx <= view.chunkCoordX + CHUNK_RADIUS; cx++) {
-            for (int cz = view.chunkCoordZ - CHUNK_RADIUS; cz <= view.chunkCoordZ + CHUNK_RADIUS; cz++) {
+        VISIBLE.clear();
+        for (int cx = view.chunkCoordX - radius; cx <= view.chunkCoordX + radius; cx++) {
+            for (int cz = view.chunkCoordZ - radius; cz <= view.chunkCoordZ + radius; cz++) {
+                double centerX = (cx << 4) + 8;
+                double centerZ = (cz << 4) + 8;
+                double dx = Math.max(Math.abs(centerX - vx) - 8, 0);
+                double dz = Math.max(Math.abs(centerZ - vz) - 8, 0);
+                if (dx * dx + dz * dz > maxDistSq) {
+                    continue;
+                }
                 Chunk chunk = world.getChunkProvider().getLoadedChunk(cx, cz);
-                if (chunk == null) continue;
-
+                if (chunk == null) {
+                    continue;
+                }
                 for (TileEntity te : chunk.getTileEntityMap().values()) {
-                    if (te.isInvalid()) continue;
+                    if (te.isInvalid()) {
+                        continue;
+                    }
                     BlockPos p = te.getPos();
-                    if (!HeightConstants.isExtendedY(p.getY())) continue;
-
-                    double dx = p.getX() + 0.5 - vx;
-                    double dy = p.getY() + 0.5 - vy;
-                    double dz = p.getZ() + 0.5 - vz;
-                    if (dx * dx + dy * dy + dz * dz <= MAX_DIST_SQ) {
-                        visible.add(te);
+                    if (!HeightConstants.isExtendedY(p.getY())) {
+                        continue;
+                    }
+                    double ex = p.getX() + 0.5 - vx;
+                    double ey = p.getY() + 0.5 - vy;
+                    double ez = p.getZ() + 0.5 - vz;
+                    if (ex * ex + ey * ey + ez * ez <= maxDistSq * 4) {
+                        VISIBLE.add(te);
                     }
                 }
             }
         }
 
-        if (visible.isEmpty()) return;
+        if (VISIBLE.isEmpty()) {
+            return;
+        }
 
         GlStateManager.pushMatrix();
         GlStateManager.translate(-vx, -vy, -vz);
@@ -76,7 +98,7 @@ public class ExtendedTileEntityRenderHandler {
         GlStateManager.color(1f, 1f, 1f, 1f);
         mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
 
-        for (TileEntity te : visible) {
+        for (TileEntity te : VISIBLE) {
             BlockPos p = te.getPos();
             try {
                 TileEntityRendererDispatcher.instance.render(

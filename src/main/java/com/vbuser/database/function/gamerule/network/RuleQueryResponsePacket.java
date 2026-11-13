@@ -13,6 +13,7 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 
 import java.nio.charset.StandardCharsets;
 
+@SuppressWarnings("unused")
 public class RuleQueryResponsePacket extends ModPacket {
     private String rule;
 

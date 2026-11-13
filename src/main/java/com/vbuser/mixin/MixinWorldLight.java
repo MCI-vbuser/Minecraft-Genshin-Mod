@@ -33,6 +33,9 @@ public abstract class MixinWorldLight {
         }
 
         World self = (World) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self)) {
+            return;
+        }
         if (!self.provider.hasSkyLight() && type == EnumSkyBlock.SKY) {
             cir.setReturnValue(0);
             return;

@@ -34,7 +34,7 @@ import java.util.function.Consumer;
  * </ul>
  *
  * <h2>Rendering</h2>
- * <p>By default a full screen overlay is shown. Call {@link #setAutoOverlay(boolean) false}
+ * <p>By default, a full screen overlay is shown. Call {@link #setAutoOverlay(boolean) false}
  * and use {@link #getTextureId()} / {@link #updateTexture()} to draw the frame inside your
  * own GUI.</p>
  *
@@ -140,7 +140,7 @@ public final class CGAPI {
             return false;
         }
         if (!CGFileManager.exists(fileName)) {
-            LOGGER.warn("CG file not found on the server: {}", CGFileManager.getCGDir() + "/" + fileName);
+            LOGGER.warn("CG file not found on this server: {}", CGFileManager.getCGDir() + "/" + fileName);
             return false;
         }
         NetworkManager.sendToPlayer(new PlayCGPacket(fileName), player);
@@ -380,9 +380,10 @@ public final class CGAPI {
     // ------------------------------------------------------------- internals
 
     private static List<EntityPlayerMP> onlinePlayers() {
-        if (FMLCommonHandler.instance().getMinecraftServerInstance() == null
-                || FMLCommonHandler.instance().getMinecraftServerInstance().getPlayerList() == null) {
+        if (FMLCommonHandler.instance().getMinecraftServerInstance() == null) {
             return new ArrayList<>();
+        } else {
+            FMLCommonHandler.instance().getMinecraftServerInstance();
         }
         return new ArrayList<>(FMLCommonHandler.instance()
                 .getMinecraftServerInstance().getPlayerList().getPlayers());

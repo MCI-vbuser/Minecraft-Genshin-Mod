@@ -8,6 +8,20 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+/**
+ * Extended block positions on the wire.
+ *
+ * <p>Vanilla {@code PacketBuffer#writeBlockPos} stores {@code BlockPos.toLong()},
+ * whose Y field is only 12 bits ({@code -2048..2047}), so a position outside
+ * {@code 0..255} would be silently truncated. Rather than changing
+ * {@code BlockPos.toLong} itself (used by other code that expects the vanilla
+ * packing, and by every other mod), the packet format gets one flag byte ahead
+ * of the payload: {@code 0 + long} for a vanilla position, {@code 1 + x,y,z}
+ * otherwise.</p>
+ *
+ * <p>Consequence: the mod is mandatory on both sides. {@code ExtendedJoinCheck}
+ * disconnects clients that do not run it instead of letting them desync.</p>
+ */
 @Mixin(PacketBuffer.class)
 public abstract class MixinPacketBuffer {
 

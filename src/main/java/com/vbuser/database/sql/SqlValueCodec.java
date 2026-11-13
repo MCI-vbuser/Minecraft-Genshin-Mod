@@ -27,6 +27,7 @@ import java.util.UUID;
  * custom payload limit. {@link DatabaseHelper} clips oversized values before they
  * reach this codec.</p>
  */
+@SuppressWarnings("unused")
 public final class SqlValueCodec {
 
     /** Maximum size of a single text value on the wire. */
@@ -198,7 +199,7 @@ public final class SqlValueCodec {
     }
 
     /**
-     * Human readable type name, used by diagnostics and by {@link SqlColumn}.
+     * Human-readable type name, used by diagnostics and by {@link SqlColumn}.
      */
     public static String typeNameOf(Object value) {
         return value == null ? "NULL" : value.getClass().getSimpleName();

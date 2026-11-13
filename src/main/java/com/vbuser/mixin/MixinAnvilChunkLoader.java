@@ -1,5 +1,6 @@
 package com.vbuser.mixin;
 
+import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
 import com.vbuser.inf.light.ColumnLight;
@@ -25,7 +26,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.Map;
 
 @Mixin(AnvilChunkLoader.class)
 public abstract class MixinAnvilChunkLoader {
@@ -64,6 +64,12 @@ public abstract class MixinAnvilChunkLoader {
             at = @At("TAIL")
     )
     private void inf$writeChunkToNBT(Chunk chunk, World world, NBTTagCompound nbt, CallbackInfo ci) {
+        if (!HeightConstants.isExtendedWorld(world)) {
+            // Only the extended dimension persists extended data. A vanilla
+            // compound is written from scratch on every save, so simply not
+            // writing drops anything left over from earlier builds.
+            return;
+        }
         ExtendedColumn col = ColumnManager.getIfPresent(chunk);
         if (col == null) {
             nbt.removeTag(INF_SECTIONS);
@@ -152,7 +158,7 @@ public abstract class MixinAnvilChunkLoader {
         if (sections.tagCount() > 0) {
             nbt.setTag(INF_SECTIONS, sections);
             nbt.setInteger(INF_FORMAT, INF_FORMAT_PALETTE);
-            if (light.isTrusted()) {
+            if (light.isTrusted() && light.isSettled() && !mdk$engineBusy(world)) {
                 nbt.setInteger(INF_LIGHT, INF_LIGHT_VERSION);
             } else {
                 nbt.removeTag(INF_LIGHT);
@@ -172,6 +178,9 @@ public abstract class MixinAnvilChunkLoader {
                                       CallbackInfoReturnable<Chunk> cir) {
         Chunk chunk = cir.getReturnValue();
         if (chunk == null || !nbt.hasKey(INF_SECTIONS, 9)) {
+            return;
+        }
+        if (!HeightConstants.isExtendedWorld(world)) {
             return;
         }
 
@@ -247,6 +256,14 @@ public abstract class MixinAnvilChunkLoader {
         // saves) is dropped and derived from the blocks again by the engine.
         boolean trusted = nbt.getInteger(INF_LIGHT) >= INF_LIGHT_VERSION;
         light.onChunkLoaded(world, trusted);
+    }
+
+    @Unique
+    private static boolean mdk$engineBusy(World world) {
+        if (world instanceof com.vbuser.inf.light.ExtendedWorldLight) {
+            return ((com.vbuser.inf.light.ExtendedWorldLight) world).inf$lightEngine().hasPendingWork();
+        }
+        return false;
     }
 
     @Unique

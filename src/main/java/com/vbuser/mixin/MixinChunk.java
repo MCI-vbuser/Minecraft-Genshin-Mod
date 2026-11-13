@@ -38,12 +38,20 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
             cancellable = true
     )
     private void inf$getBlockState(int x, int y, int z, CallbackInfoReturnable<IBlockState> cir) {
-        if (HeightConstants.isExtendedY(y)) {
-            ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
-            cir.setReturnValue(column == null
-                    ? Blocks.AIR.getDefaultState()
-                    : column.getBlock(x, y, z));
+        if (!HeightConstants.isExtendedY(y)) {
+            return;
         }
+        Chunk self = (Chunk) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self.getWorld())) {
+            // Outside 0..255 in a dimension without an extended region: air,
+            // exactly like vanilla's own out of range answer.
+            cir.setReturnValue(Blocks.AIR.getDefaultState());
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent(self);
+        cir.setReturnValue(column == null
+                ? Blocks.AIR.getDefaultState()
+                : column.getBlock(x, y, z));
     }
 
     @Inject(
@@ -60,6 +68,12 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
 
         Chunk self = (Chunk) (Object) this;
         World world = self.getWorld();
+        if (!HeightConstants.isExtendedWorld(world)) {
+            // Vanilla Chunk.setBlockState indexes storageArrays without a bounds
+            // check, so this must not fall through for Y outside 0..255.
+            cir.setReturnValue(null);
+            return;
+        }
         ExtendedColumn column = ColumnManager.get(self);
         IBlockState oldState = column.setBlock(world, pos.getX(), y, pos.getZ(), state, 3);
 
@@ -95,12 +109,16 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
         if (HeightConstants.isExtendedY(pos.getY())) {
             return;
         }
-        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        Chunk self = (Chunk) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self.getWorld())) {
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent(self);
         if (column == null) {
             return;
         }
         column.getLight().onVanillaHeightChanged(
-                ((Chunk) (Object) this).getWorld(), pos.getX() & 15, pos.getZ() & 15);
+                self.getWorld(), pos.getX() & 15, pos.getZ() & 15);
     }
 
     @Inject(
@@ -114,9 +132,15 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
             return;
         }
         Chunk self = (Chunk) (Object) this;
+        // Vanilla Chunk.setLightFor indexes storageArrays without a bounds
+        // check, so an extended Y outside the extended world must be dropped
+        // instead of falling through.
+        ci.cancel();
+        if (!HeightConstants.isExtendedWorld(self.getWorld())) {
+            return;
+        }
         ColumnManager.get(self).getLight().setLightFor(type, pos.getX(), pos.getY(), pos.getZ(), value);
         self.markDirty();
-        ci.cancel();
     }
 
     @Inject(
@@ -129,9 +153,14 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
         if (!HeightConstants.isExtendedY(pos.getY())) {
             return;
         }
-        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        Chunk self = (Chunk) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self.getWorld())) {
+            cir.setReturnValue(inf$outsideLight(self, type));
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent(self);
         if (column == null) {
-            cir.setReturnValue(inf$defaultLight(type, pos.getX(), pos.getY(), pos.getZ()));
+            cir.setReturnValue(inf$defaultLight(type, self, pos.getX(), pos.getY(), pos.getZ()));
             return;
         }
         cir.setReturnValue(column.getLight().getLightFor(type, pos.getX(), pos.getY(), pos.getZ()));
@@ -147,10 +176,16 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
         if (!HeightConstants.isExtendedY(pos.getY())) {
             return;
         }
-        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        Chunk self = (Chunk) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self.getWorld())) {
+            int sky = inf$outsideLight(self, EnumSkyBlock.SKY) - amount;
+            cir.setReturnValue(Math.max(sky, 0));
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent(self);
         if (column == null) {
             int sky = 0;
-            if (inf$defaultLight(EnumSkyBlock.SKY, pos.getX(), pos.getY(), pos.getZ()) > 0) {
+            if (inf$defaultLight(EnumSkyBlock.SKY, self, pos.getX(), pos.getY(), pos.getZ()) > 0) {
                 sky = EnumSkyBlock.SKY.defaultLightValue - amount;
                 if (sky < 0) {
                     sky = 0;
@@ -172,12 +207,28 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
         if (!HeightConstants.isExtendedY(pos.getY())) {
             return;
         }
-        ExtendedColumn column = ColumnManager.getIfPresent((Chunk) (Object) this);
+        Chunk self = (Chunk) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self.getWorld())) {
+            // Outside 0..255 there is nothing to stand on: never sky visible.
+            cir.setReturnValue(false);
+            return;
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent(self);
         if (column == null) {
-            cir.setReturnValue(inf$defaultLight(EnumSkyBlock.SKY, pos.getX(), pos.getY(), pos.getZ()) > 0);
+            cir.setReturnValue(inf$defaultLight(EnumSkyBlock.SKY, self,
+                    pos.getX(), pos.getY(), pos.getZ()) > 0);
             return;
         }
         cir.setReturnValue(column.getLight().canSeeSky(pos.getX(), pos.getY(), pos.getZ()));
+    }
+
+    /** Light of an extended cell in a dimension that has no extended region. */
+    @Unique
+    private static int inf$outsideLight(Chunk chunk, EnumSkyBlock type) {
+        if (type != EnumSkyBlock.SKY || !chunk.getWorld().provider.hasSkyLight()) {
+            return 0;
+        }
+        return EnumSkyBlock.SKY.defaultLightValue;
     }
 
     /**
@@ -186,15 +237,14 @@ public abstract class MixinChunk implements ExtendedColumnHolder {
      * the pure column model: 15 above the vanilla height map, 0 below it.
      */
     @Unique
-    private int inf$defaultLight(EnumSkyBlock type, int x, int y, int z) {
+    private static int inf$defaultLight(EnumSkyBlock type, Chunk chunk, int x, int y, int z) {
         if (type != EnumSkyBlock.SKY) {
             return 0;
         }
-        Chunk self = (Chunk) (Object) this;
-        if (!self.getWorld().provider.hasSkyLight()) {
+        if (!chunk.getWorld().provider.hasSkyLight()) {
             return 0;
         }
-        int top = self.getHeightValue(x & 15, z & 15);
+        int top = chunk.getHeightValue(x & 15, z & 15);
         return top == 0 || y >= top ? EnumSkyBlock.SKY.defaultLightValue : 0;
     }
 }

@@ -1,11 +1,11 @@
 package com.vbuser.mixin;
 
 import com.vbuser.inf.HeightConstants;
-import com.vbuser.inf.InfiniteHeight;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
 import com.vbuser.inf.light.ExtendedLightEngine;
 import com.vbuser.inf.light.ExtendedWorldLight;
+import com.vbuser.inf.network.ExtendedPacketQueue;
 import com.vbuser.inf.network.SPacketExtendedTileEntity;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEventData;
@@ -39,11 +39,22 @@ public abstract class MixinWorld implements ExtendedWorldLight {
     private final List<BlockEventData> inf$extendedBlockEvents = new ArrayList<>();
 
     @Unique
-    private ExtendedLightEngine inf$lightEngine;
+    private volatile ExtendedLightEngine inf$lightEngine;
 
+    /**
+     * Hot path (every block change reaches this through {@code ColumnLight}),
+     * so the common case only reads a volatile field; only the first call takes
+     * the lock.
+     */
     @Unique
     @Override
-    public synchronized ExtendedLightEngine inf$lightEngine() {
+    public ExtendedLightEngine inf$lightEngine() {
+        ExtendedLightEngine engine = this.inf$lightEngine;
+        return engine != null ? engine : inf$createLightEngine();
+    }
+
+    @Unique
+    private synchronized ExtendedLightEngine inf$createLightEngine() {
         if (this.inf$lightEngine == null) {
             this.inf$lightEngine = new ExtendedLightEngine((World) (Object) this);
         }
@@ -58,6 +69,9 @@ public abstract class MixinWorld implements ExtendedWorldLight {
     private void inf$addBlockEvent(BlockPos pos, Block blockIn, int eventID, int eventParam,
                                    CallbackInfo ci) {
         if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        if (!HeightConstants.isExtendedWorld((World) (Object) this)) {
             return;
         }
 
@@ -108,7 +122,8 @@ public abstract class MixinWorld implements ExtendedWorldLight {
             at = @At("TAIL")
     )
     private void inf$tickLightEngine(CallbackInfo ci) {
-        if (this.inf$lightEngine != null) {
+        if (this.inf$lightEngine != null
+                && HeightConstants.isExtendedWorld((World) (Object) this)) {
             this.inf$lightEngine.tick();
         }
     }
@@ -129,6 +144,9 @@ public abstract class MixinWorld implements ExtendedWorldLight {
                                                   BlockPos pos, IBlockState newState, int flags) {
         if (!HeightConstants.isExtendedY(chunkPos.getY())) {
             return chunk.setBlockState(chunkPos, chunkState);
+        }
+        if (!HeightConstants.isExtendedWorld((World) (Object) this)) {
+            return null;
         }
 
         ExtendedColumn column = ColumnManager.get(chunk);
@@ -156,6 +174,9 @@ public abstract class MixinWorld implements ExtendedWorldLight {
         }
 
         World self = (World) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self)) {
+            return;
+        }
 
         if (te.getWorld() != self) {
             te.setWorld(self);
@@ -194,7 +215,7 @@ public abstract class MixinWorld implements ExtendedWorldLight {
             int dx = Math.abs(mp.chunkCoordX - chunkX);
             int dz = Math.abs(mp.chunkCoordZ - chunkZ);
             if (dx <= viewDist && dz <= viewDist) {
-                InfiniteHeight.NETWORK.sendTo(packet, mp);
+                ExtendedPacketQueue.sendTileEntity(mp, packet);
             }
         }
     }
@@ -206,9 +227,9 @@ public abstract class MixinWorld implements ExtendedWorldLight {
     )
     private void inf$isBlockLoaded(BlockPos pos, boolean allowEmpty,
                                    CallbackInfoReturnable<Boolean> cir) {
-        if (HeightConstants.isExtendedY(pos.getY())) {
-            cir.setReturnValue(
-                    this.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4, allowEmpty));
+        if (HeightConstants.isExtendedY(pos.getY())
+                && HeightConstants.isExtendedWorld((World) (Object) this)) {
+            cir.setReturnValue(this.isChunkLoaded(pos.getX() >> 4, pos.getZ() >> 4, allowEmpty));
         }
     }
 
@@ -221,7 +242,13 @@ public abstract class MixinWorld implements ExtendedWorldLight {
             cancellable = true
     )
     private void inf$isOutsideBuildHeight(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
-        cir.setReturnValue(!HeightConstants.isValidY(pos.getY()));
+        if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        // Extended Y only exists in the extended dimension; everywhere else it is
+        // outside the build height, so World.setBlockState rejects it before the
+        // (unbounded) vanilla chunk arrays are touched.
+        cir.setReturnValue(!HeightConstants.isExtendedWorld((World) (Object) this));
     }
 
     /**
@@ -321,7 +348,7 @@ public abstract class MixinWorld implements ExtendedWorldLight {
 
     /**
      * Extended coordinates have no vanilla render section to notify; the seam
-     * layers are mirrored onto their vanilla neighbour by the engine instead.
+     * layers are mirrored onto their vanilla neighbor by the engine instead.
      */
     @Inject(
             method = "notifyLightSet(Lnet/minecraft/util/math/BlockPos;)V",
@@ -346,6 +373,10 @@ public abstract class MixinWorld implements ExtendedWorldLight {
         }
 
         World self = (World) (Object) this;
+        if (!HeightConstants.isExtendedWorld(self)) {
+            ci.cancel();
+            return;
+        }
         if (!(self instanceof WorldServer)) {
             ci.cancel();
             return;
@@ -379,9 +410,9 @@ public abstract class MixinWorld implements ExtendedWorldLight {
             int dx = Math.abs(mp.chunkCoordX - chunkX);
             int dz = Math.abs(mp.chunkCoordZ - chunkZ);
             if (dx <= viewDist && dz <= viewDist) {
-                mp.connection.sendPacket(blockPacket);
+                ExtendedPacketQueue.sendBlockChange(mp, blockPacket);
                 if (tilePacket != null) {
-                    InfiniteHeight.NETWORK.sendTo(tilePacket, mp);
+                    ExtendedPacketQueue.sendTileEntity(mp, tilePacket);
                 }
             }
         }
@@ -397,6 +428,10 @@ public abstract class MixinWorld implements ExtendedWorldLight {
     private void inf$isAreaLoaded(int x1, int y1, int z1, int x2, int y2, int z2, boolean allowEmpty,
                                   CallbackInfoReturnable<Boolean> cir) {
         if (y2 < HeightConstants.VANILLA_MIN_Y || y1 > HeightConstants.VANILLA_MAX_Y) {
+            if (!HeightConstants.isExtendedWorld((World) (Object) this)) {
+                cir.setReturnValue(false);
+                return;
+            }
             int cx1 = x1 >> 4;
             int cz1 = z1 >> 4;
             int cx2 = x2 >> 4;

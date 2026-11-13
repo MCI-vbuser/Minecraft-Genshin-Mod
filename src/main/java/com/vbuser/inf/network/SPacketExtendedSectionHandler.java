@@ -29,7 +29,7 @@ public class SPacketExtendedSectionHandler
             }
 
             Chunk chunk = world.getChunkFromChunkCoords(msg.getChunkX(), msg.getChunkZ());
-            if (chunk == null || chunk instanceof EmptyChunk) {
+            if (chunk instanceof EmptyChunk) {
                 // The chunk itself has not arrived yet (or was unloaded in the
                 // meantime); the send path ships this section again with it.
                 return;

@@ -30,6 +30,7 @@ import java.util.Map;
  * <p>All file names are validated by {@link #resolve(String)}, so callers never have to
  * know (or re-implement) the traversal rules.</p>
  */
+@SuppressWarnings("unused")
 public class BGMFileManager {
 
     private static volatile File bgmDir;
@@ -75,10 +76,7 @@ public class BGMFileManager {
         if (name.contains("..") || name.contains("\\") || name.indexOf(':') >= 0) {
             return false;
         }
-        if (name.startsWith("/") || name.endsWith("/")) {
-            return false;
-        }
-        return !name.isEmpty();
+        return !name.startsWith("/") && !name.endsWith("/");
     }
 
     /**
@@ -190,10 +188,8 @@ public class BGMFileManager {
     /**
      * Copies a stream shipped inside a mod into the bgm directory, so mods can install
      * their own tracks without touching the file system layout.
-     *
-     * @return the written file
      */
-    public static File install(InputStream stream, String fileName) throws IOException {
+    public static void install(InputStream stream, String fileName) throws IOException {
         if (stream == null) {
             throw new IOException("BGM source stream is null");
         }
@@ -206,6 +202,5 @@ public class BGMFileManager {
         try (InputStream in = stream) {
             Files.copy(in, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
-        return target;
     }
 }

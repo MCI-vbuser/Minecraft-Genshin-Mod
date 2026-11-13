@@ -5,6 +5,7 @@ package com.vbuser.genshin.tool.cg;
  *
  * <p>All callbacks run on the client thread.</p>
  */
+@SuppressWarnings("unused")
 public interface CgListener {
 
     /** Download/generation progress in {@code [0, 1]} while a cg is being fetched. */

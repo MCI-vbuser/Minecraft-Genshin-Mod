@@ -22,7 +22,8 @@ public class MixinRenderGlobal {
                                           TileEntity te,
                                           float partialTicks,
                                           int destroyStage) {
-        if (te != null && HeightConstants.isExtendedY(te.getPos().getY())) {
+        if (te != null && HeightConstants.isExtendedY(te.getPos().getY())
+                && HeightConstants.isExtendedWorld(te.getWorld())) {
             return;
         }
         assert te != null;

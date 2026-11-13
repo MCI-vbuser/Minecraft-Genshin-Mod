@@ -42,7 +42,7 @@ public class FXVideoPlayer implements IVideoFrameProvider {
     private MediaPlayer mediaPlayer;
     private MediaView mediaView;
     private Stage invisibleStage;
-    private String mediaUri;
+    String mediaUri;
     private int width;
     private int height;
     private volatile boolean playing;
@@ -54,7 +54,7 @@ public class FXVideoPlayer implements IVideoFrameProvider {
 
     private static volatile boolean jfxInitialized = false;
     /** Strong reference on purpose: see the class javadoc. */
-    private static JFXPanel toolkitPanel;
+    static JFXPanel toolkitPanel;
     private static volatile boolean unavailableLogged;
     private static volatile boolean unavailable;
 
@@ -335,8 +335,4 @@ public class FXVideoPlayer implements IVideoFrameProvider {
         return playing && !stopped;
     }
 
-    /** Last media URI this player tried to open, for diagnostics. */
-    public String getMediaUri() {
-        return mediaUri;
-    }
 }

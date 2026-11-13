@@ -42,7 +42,7 @@ function plainSchema(check) {
   };
 }
 
-export function apply(ctx) {
+export async function apply(ctx) {
   const stateSchema = plainSchema(assertState);
   const viewSchema = plainSchema((value) => {
     if (typeof value !== 'object' || value === null || typeof value.active !== 'boolean' || typeof value.pending !== 'boolean') {
@@ -81,12 +81,14 @@ export function apply(ctx) {
     },
   };
 
+  let projectionHandle;
+
   const section = {
     name: 'mc:source-bridge',
     order: ctx.systemPrompt.getSectionOrder('MCP_SERVERS'),
     text: (context) => {
       if (context.agent === undefined) return '';
-      const state = ctx.sessionProjections.stateOf(context.agent.session, KEY);
+      const state = projectionHandle?.stateOf(context.agent.session);
       if (state?.active !== true) return '';
       return `## Minecraft source bridge: ON
 
@@ -124,7 +126,7 @@ Start with a class search, use the outline before a long class, and read only th
     if (agent === undefined) return undefined;
     let active = false;
     try {
-      active = ctx.sessionProjections.stateOf(agent.session, KEY)?.active === true;
+      active = projectionHandle?.stateOf(agent.session)?.active === true;
     } catch {
       active = false;
     }
@@ -133,10 +135,8 @@ Start with a class search, use the outline before a long class, and read only th
       : 'The Minecraft source bridge is off for this conversation. Turn on the grass-block button next to Send, or run /mc on, before using mcp__mc__* or mcp__idea__* tools.';
   };
 
-  ctx.effect(function* () {
-    yield ctx.sessionProjections.register(projection);
-    yield ctx.commands.register(command);
-    yield ctx.systemPrompt.section(section);
-    yield ctx.tools.guard(guard);
-  }, 'mc-source-toggle: resources');
+  projectionHandle = await ctx.sessionProjections.register(projection);
+  ctx.effect(() => ctx.commands.register(command), 'mc-source-toggle: command');
+  ctx.effect(() => ctx.systemPrompt.section(section), 'mc-source-toggle: system prompt');
+  ctx.effect(() => ctx.tools.guard(guard), 'mc-source-toggle: tool guard');
 }

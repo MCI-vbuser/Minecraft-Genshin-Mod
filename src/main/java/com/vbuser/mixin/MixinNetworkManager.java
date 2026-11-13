@@ -15,6 +15,7 @@ import net.minecraft.network.PacketBuffer;
 import net.minecraftforge.fml.common.network.internal.FMLProxyPacket;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -36,6 +37,7 @@ import java.util.List;
 @Mixin(NetworkManager.class)
 public abstract class MixinNetworkManager {
 
+    @Unique
     private static final Logger INF_LOGGER = LogManager.getLogger("genshin-network");
 
     @Unique
@@ -44,6 +46,7 @@ public abstract class MixinNetworkManager {
     @Shadow
     private Channel channel;
 
+    @Final
     @Shadow
     private EnumPacketDirection direction;
 
@@ -151,10 +154,7 @@ public abstract class MixinNetworkManager {
     @Unique
     private int inf$queueVanilla(Packet<?> packet) {
         try {
-            Integer id = EnumConnectionState.PLAY.getPacketId(this.inf$outboundDirection(), packet);
-            if (id == null) {
-                return -1;
-            }
+            int id = EnumConnectionState.PLAY.getPacketId(this.inf$outboundDirection(), packet);
 
             PacketBuffer data = new PacketBuffer(Unpooled.buffer());
             byte[] bytes;

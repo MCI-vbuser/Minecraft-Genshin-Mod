@@ -1,5 +1,6 @@
 package com.vbuser.mixin;
 
+import com.vbuser.inf.HeightConstants;
 import net.minecraft.block.BlockDoor;
 import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,6 +15,6 @@ public abstract class MixinBlockDoor {
             at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;getHeight()I")
     )
     private int inf$extendedWorldHeight(World world) {
-        return Integer.MAX_VALUE;
+        return HeightConstants.isExtendedWorld(world) ? Integer.MAX_VALUE : world.getHeight();
     }
 }

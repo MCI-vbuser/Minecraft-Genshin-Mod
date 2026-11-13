@@ -77,11 +77,6 @@ public final class CGFileClientCache {
         RequestCGFilePacket.send(fileName);
     }
 
-    /** True while the given file is being received. */
-    public static boolean isDownloading(String fileName) {
-        return fileName != null && RECEIVING.containsKey(fileName);
-    }
-
     /** Download progress in {@code [0, 1]}. */
     public static float getProgress(String fileName) {
         if (fileName == null) {
@@ -98,45 +93,31 @@ public final class CGFileClientCache {
         return Math.min(1f, (float) received.get() / (float) total);
     }
 
-    /** Drops all state for a file, e.g. when the player stops the cg. */
-    public static void cancel(String fileName) {
-        if (fileName == null) {
-            return;
-        }
-        RECEIVING.remove(fileName);
-        RECEIVED.remove(fileName);
-        TOTALS.remove(fileName);
-        LAST_CHUNK_AT.remove(fileName);
-        AUTO_PLAY.remove(fileName);
-        LAST_PERCENT.remove(fileName);
-    }
-
     /** Called from the chunk packet on the client thread. */
     public static void receiveChunk(String fileName, int chunkIndex, int totalChunks, byte[] data) {
         if (!CGFileManager.isValidName(fileName) || data == null) {
             return;
         }
-        if (totalChunks <= 0 || chunkIndex < 0 || chunkIndex >= totalChunks) {
+        if (chunkIndex < 0 || chunkIndex >= totalChunks) {
             LOGGER.warn("Dropping an out of range cg chunk {} ({}/{})", fileName, chunkIndex, totalChunks);
             return;
         }
         LAST_CHUNK_AT.put(fileName, System.currentTimeMillis());
         TOTALS.put(fileName, totalChunks);
 
-        byte[][] chunks = RECEIVING.get(fileName);
-        if (chunks == null || chunks.length != totalChunks) {
-            chunks = new byte[totalChunks][];
-            RECEIVING.put(fileName, chunks);
+        byte[][] complete = RECEIVING.get(fileName);
+        if (complete == null || complete.length != totalChunks) {
+            complete = new byte[totalChunks][];
+            RECEIVING.put(fileName, complete);
         }
-        if (chunks[chunkIndex] == null) {
-            chunks[chunkIndex] = data;
+        if (complete[chunkIndex] == null) {
+            complete[chunkIndex] = data;
             RECEIVED.computeIfAbsent(fileName, key -> new AtomicInteger()).incrementAndGet();
         }
 
         fireLoading(fileName);
         AtomicInteger received = RECEIVED.get(fileName);
         if (received != null && received.get() >= totalChunks) {
-            byte[][] complete = chunks;
             RECEIVING.remove(fileName);
             save(fileName, complete);
         }

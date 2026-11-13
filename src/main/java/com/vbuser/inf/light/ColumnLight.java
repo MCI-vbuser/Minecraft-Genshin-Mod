@@ -1,6 +1,5 @@
 package com.vbuser.inf.light;
 
-import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -33,7 +32,7 @@ import java.util.Map;
  * {@link ExtendedLightEngine}. A section without an array answers with the
  * column value, which is exact for a section that was never touched: everything
  * above the column top sees the sky (15), everything below is dark (0). Arrays
- * are materialised the first time a cell needs a value that differs.</p>
+ * are materialized the first time a cell needs a value that differs.</p>
  */
 public class ColumnLight {
 
@@ -65,6 +64,13 @@ public class ColumnLight {
 
     /** True when the stored arrays match the block data and may be saved as-is. */
     private boolean trusted;
+
+    /**
+     * Sections of this column that were queued for seeding but not processed
+     * yet. Reaches 0 once the whole column has been re-derived, which is what
+     * flips {@link #trusted} back on after a rebuild.
+     */
+    private int pendingSeeds;
 
     public ColumnLight(ExtendedColumn column) {
         this.column = column;
@@ -106,6 +112,23 @@ public class ColumnLight {
         return this.trusted;
     }
 
+    /** True when every section of this column has been seeded at least once. */
+    public boolean isSettled() {
+        return this.pendingSeeds <= 0;
+    }
+
+    void markTrusted() {
+        this.trusted = true;
+        this.pendingSeeds = 0;
+    }
+
+    /** Called by the engine when one queued section of this column was processed. */
+    void seedConsumed() {
+        if (this.pendingSeeds > 0) {
+            this.pendingSeeds--;
+        }
+    }
+
     // ------------------------------------------------------------------
     // Column top
     // ------------------------------------------------------------------
@@ -132,7 +155,7 @@ public class ColumnLight {
 
     public boolean canSeeSky(int x, int y, int z) {
         int top = top(x, z);
-        return top == NO_TOP || y >= top;
+        return y >= top;
     }
 
     // ------------------------------------------------------------------
@@ -160,7 +183,7 @@ public class ColumnLight {
             sky = 0;
         }
         int block = getLightFor(EnumSkyBlock.BLOCK, x, y, z);
-        return block > sky ? block : sky;
+        return Math.max(block, sky);
     }
 
     /** Raw write; propagation is the engine's job. */
@@ -222,8 +245,6 @@ public class ColumnLight {
      * to it has to be rebuilt. {@code notifyLightSet} only queues a light update
      * for the chunk the position falls in; a retired mesh needs the stronger
      * render-range update.
-     */
-    /**
      * The baked section mesh has the light baked into its vertices, so the
      * section has to be re-meshed whenever a value in it changes.
      */
@@ -280,7 +301,7 @@ public class ColumnLight {
      * @param oldTop column top captured <b>before</b> the block changed
      */
     public void onBlockChanged(World world, int x, int y, int z,
-                               IBlockState oldState, IBlockState newState, int oldTop) {
+                               IBlockState ignored, IBlockState newState, int oldTop) {
         int lx = x & 15;
         int lz = z & 15;
         int index = (lz << 4) | lx;
@@ -321,6 +342,7 @@ public class ColumnLight {
         rebuildTop(world);
         this.trusted = trustLight;
         if (trustLight) {
+            this.pendingSeeds = 0;
             return;
         }
         // Old saves (and the previous "everything is 15" implementation) cannot
@@ -330,7 +352,7 @@ public class ColumnLight {
         // ones with blocks: the air around a shaft carries light without owning
         // a single block, and those sections are exactly what made "light only
         // appears after you break a block next to it" happen. One layer of
-        // neighbours is seeded as well, because light bleeds across the border.
+        // neighbors is seeded as well, because light bleeds across the border.
         IntSet sections = new IntOpenHashSet();
         sections.addAll(this.column.getSections().keySet());
         sections.addAll(this.skyLight.keySet());
@@ -345,10 +367,17 @@ public class ColumnLight {
             seeds.add(sectionY + 1);
         }
         ExtendedLightEngine engine = engine(world);
-        if (engine != null) {
-            for (int sectionY : seeds) {
-                engine.scheduleSectionInit(this.chunk.x, this.chunk.z, sectionY);
-            }
+        if (engine == null) {
+            this.pendingSeeds = 0;
+            return;
+        }
+        // Every seeded section counts towards this column becoming trusted
+        // again: the arrays may only be written to disk once all of them have
+        // been re-derived by the engine.
+        this.pendingSeeds = seeds.size();
+        engine.addTrustPending(this);
+        for (int sectionY : seeds) {
+            engine.scheduleSectionInit(this.chunk.x, this.chunk.z, sectionY);
         }
     }
 
@@ -378,7 +407,7 @@ public class ColumnLight {
         int oldTop;
         int newTop;
         if (nowEmpty) {
-            oldTop = extended == NO_TOP || extended < 1 ? 1 : extended;
+            oldTop = Math.max(extended, 1);
             newTop = extended;
         } else {
             int vanilla = this.chunk.getHeightValue(lx, lz);
@@ -388,33 +417,45 @@ public class ColumnLight {
         engine.onColumnTopChanged(x, z, oldTop, newTop);
     }
 
+    /**
+     * Highest light blocking block of <b>this column only</b>, below
+     * {@code fromY}, plus one.
+     *
+     * <p>Only the 16 cells of the requested column are probed per section, from
+     * the top down and with an early exit: the old version walked every non-air
+     * bit of every section of the chunk - other columns included - which was
+     * both O(all blocks of the chunk) and wrong, because a block one column to
+     * the side could raise this column's top.</p>
+     */
     private int scanTop(World world, int lx, int lz, int fromY) {
-        int best = NO_TOP;
         BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
         int worldX = (this.chunk.x << 4) + lx;
         int worldZ = (this.chunk.z << 4) + lz;
+        int best = NO_TOP;
 
         for (Map.Entry<Integer, ExtendedBlockStorage> entry : this.column.getSections().entrySet()) {
-            int sectionY = entry.getKey();
-            if ((sectionY << 4) > fromY) {
+            int baseY = entry.getKey() << 4;
+            if (baseY > fromY) {
                 continue;
             }
-            BitSet nonAir = this.column.getNonAir(sectionY);
-            if (nonAir == null || nonAir.isEmpty()) {
+            // The best this section could produce is baseY + 16.
+            if (baseY + 16 <= best) {
                 continue;
             }
             ExtendedBlockStorage storage = entry.getValue();
-            int baseY = sectionY << 4;
-            for (int index = nonAir.nextSetBit(0); index >= 0; index = nonAir.nextSetBit(index + 1)) {
-                int ly = ExtendedColumn.indexY(index);
+            for (int ly = Math.min(15, fromY - baseY); ly >= 0; ly--) {
                 int y = baseY + ly;
-                if (y > fromY || y + 1 <= best) {
+                if (y + 1 <= best) {
+                    break;
+                }
+                IBlockState state = storage.get(lx, ly, lz);
+                if (state.getBlock() == Blocks.AIR) {
                     continue;
                 }
-                IBlockState state = storage.get(ExtendedColumn.indexX(index), ly, ExtendedColumn.indexZ(index));
                 pos.setPos(worldX, y, worldZ);
                 if (state.getLightOpacity(world, pos) != 0) {
                     best = y + 1;
+                    break;
                 }
             }
         }

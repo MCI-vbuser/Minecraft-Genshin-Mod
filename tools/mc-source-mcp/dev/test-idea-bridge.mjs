@@ -1,4 +1,4 @@
-﻿import { spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 const child = spawn(process.execPath, ['idea-bridge.js'], { cwd: path.join(import.meta.dirname, '..'), stdio: ['pipe', 'pipe', 'pipe'] });
@@ -46,6 +46,10 @@ show('read_file sources', await request('tools/call', { name: 'read_file', argum
 show('read_file class', await request('tools/call', { name: 'read_file', arguments: { file_path: `${jar}/forge-1.12.2-14.23.5.2854_mapped_snapshot_20171003-1.12-recomp.jar!/net/minecraft/entity/EntityLivingBase.class`, offset: 1, limit: 12 } }));
 show('search_symbol', await request('tools/call', { name: 'search_symbol', arguments: { q: 'EntityLivingBase', include_external: true, limit: 3 } }));
 show('modules', await request('tools/call', { name: 'get_project_modules', arguments: {} }));
+show('list_libraries', await request('tools/call', { name: 'list_libraries', arguments: {} }));
+show('search_classes', await request('tools/call', { name: 'search_classes', arguments: { query: 'AnimatedGeoModel', includeExternal: true, limit: 5 } }));
+show('class_outline', await request('tools/call', { name: 'class_outline', arguments: { class: 'software.bernie.geckolib3.model.AnimatedGeoModel', maxMembers: 20 } }));
+show('read_class', await request('tools/call', { name: 'read_class', arguments: { class: 'org.h2.Driver', startLine: 1, endLine: 30 } }));
 child.stdin.end();
 child.kill();
 

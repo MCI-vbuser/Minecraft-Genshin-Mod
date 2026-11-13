@@ -75,8 +75,8 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
     private static final short VT_UI8 = 21;
 
     private static NativeLibrary mfplat;
-    private static NativeLibrary mfreadwrite;
-    private static NativeLibrary ole32;
+    static NativeLibrary mfreadwrite;
+    static NativeLibrary ole32;
     private static Function MFStartup;
     private static Function MFShutdown;
     private static Function MFCreateAttributes;
@@ -465,7 +465,7 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
                     break;
                 }
                 if ("moov".equals(type)) {
-                    long child = pos + (size == 1 ? 16 : 8);
+                    long child = pos + 8;
                     long end = Math.min(pos + size, total);
                     while (child + 8 <= end) {
                         raf.seek(child);
@@ -626,7 +626,7 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
 
     private static int hr(Pointer object, int vtableIndex, Object... extraArgs) {
         Function function = Function.getFunction(object.getPointer(0)
-                .getPointer(vtableIndex * Native.POINTER_SIZE));
+                .getPointer((long) vtableIndex * Native.POINTER_SIZE));
         Object[] all = new Object[extraArgs.length + 1];
         all[0] = object;
         System.arraycopy(extraArgs, 0, all, 1, extraArgs.length);
@@ -674,7 +674,7 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
                 return;
             }
             long millis = Math.min(remaining / 1_000_000L, 20L);
-            if (millis <= 0L) {
+            if (millis == 0L) {
                 Thread.yield();
             } else {
                 sleepQuietly(millis);
@@ -690,11 +690,6 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    /** Keeps the interface honest: the decode thread is started lazily by {@link #start()}. */
-    public static boolean isWindows() {
-        return WINDOWS;
     }
 
 }

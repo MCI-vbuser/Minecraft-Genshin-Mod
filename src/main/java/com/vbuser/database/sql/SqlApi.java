@@ -11,7 +11,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -502,8 +501,7 @@ public final class SqlApi {
     }
 
     private static boolean isSupportedParameterType(Object value) {
-        return value instanceof Number || value instanceof Boolean || value instanceof java.util.Date
-                || value instanceof UUID || value instanceof BigDecimal;
+        return value instanceof Number || value instanceof Boolean || value instanceof java.util.Date || value instanceof UUID;
     }
 
     private static void requireLocalServer(String operation) {

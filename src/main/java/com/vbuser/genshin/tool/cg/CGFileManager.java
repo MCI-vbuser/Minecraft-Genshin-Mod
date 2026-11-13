@@ -69,10 +69,7 @@ public class CGFileManager {
         if (name.contains("..") || name.contains("\\") || name.indexOf(':') >= 0) {
             return false;
         }
-        if (name.startsWith("/") || name.endsWith("/")) {
-            return false;
-        }
-        return true;
+        return !name.startsWith("/") && !name.endsWith("/");
     }
 
     /**
@@ -133,8 +130,10 @@ public class CGFileManager {
         }
     }
 
-    /** Copies a stream shipped with a mod into the cg directory. */
-    public static File install(InputStream stream, String fileName) throws IOException {
+    /**
+     * Copies a stream shipped with a mod into the cg directory.
+     */
+    public static void install(InputStream stream, String fileName) throws IOException {
         if (stream == null) {
             throw new IOException("CG source stream is null");
         }
@@ -147,6 +146,5 @@ public class CGFileManager {
         try (InputStream in = stream) {
             Files.copy(in, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
-        return target;
     }
 }

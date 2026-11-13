@@ -127,8 +127,7 @@ public class VideoPlaybackManager {
                 overlayGui = new GuiVideoOverlay(previous);
                 Minecraft.getMinecraft().displayGuiScreen(overlayGui);
             }
-            IVideoFrameProvider player = createPlayer(file.getAbsolutePath());
-            currentPlayer = player;
+            currentPlayer = createPlayer(file.getAbsolutePath());
             textureReady = false;
             fireStart(fileName);
         } catch (Throwable t) {
@@ -198,11 +197,6 @@ public class VideoPlaybackManager {
             overlayGui = null;
             overlay.closeOverlay();
         }
-    }
-
-    /** Stops decoding and releases the texture, keeping the current name. */
-    public void stopPlayerOnly() {
-        runOnClient(this::stopPlayerOnlyNow);
     }
 
     private void stopPlayerOnlyNow() {

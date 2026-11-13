@@ -16,6 +16,7 @@ import net.minecraft.world.World;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 
+@SuppressWarnings("all")
 public class CommandCloudFill extends CommandBase {
     @Override
     public String getName() {

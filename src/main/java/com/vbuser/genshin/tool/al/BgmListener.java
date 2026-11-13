@@ -5,6 +5,7 @@ package com.vbuser.genshin.tool.al;
  *
  * <p>All callbacks run on the client thread.</p>
  */
+@SuppressWarnings("unused")
 public interface BgmListener {
 
     /** Playback actually started (the local file was found and handed to the engine). */

@@ -50,11 +50,19 @@ public final class ExtendedLightEngine {
 
     /** Section keys already queued, so the cascade below cannot explode. */
     private final java.util.Set<Long> scheduledSections =
-            java.util.Collections.synchronizedSet(new java.util.HashSet<Long>());
+            java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
 
     /** Cells whose light has to be recomputed once the queues settled. */
     private final NodeQueue dirty = new NodeQueue();
+
+    /**
+     * Columns that were rebuilt from block data and may be marked trusted once
+     * the engine has no work left. Weak so an unloaded chunk can never keep its
+     * column alive through this set.
+     */
+    private final java.util.Set<ColumnLight> trustPending =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
 
     // One entry cache for chunk lookups; only valid inside a single BFS run.
     private int cacheChunkX = Integer.MIN_VALUE;
@@ -106,22 +114,18 @@ public final class ExtendedLightEngine {
             }
         }
 
-        void clear() {
-            this.read = 0;
-            this.end = 0;
-        }
     }
 
     // ------------------------------------------------------------------
     // Public update entry points
     // ------------------------------------------------------------------
 
-    /** Re-derive the light of one extended cell from its neighbours and its own block. */
+    /** Re-derive the light of one extended cell from its neighbors and its own block. */
     public void updateCell(int x, int y, int z) {
         if (!HeightConstants.isExtendedY(y)) {
             return;
         }
-        // Deferred: when a block changes, its neighbours still hold the values
+        // Deferred: when a block changes, its neighbors still hold the values
         // from before the change, so computing now mixes old and new state and
         // the result depends on the order the cells were visited. Queue instead
         // and recompute once the removal/add queues are empty.
@@ -130,7 +134,7 @@ public final class ExtendedLightEngine {
 
     /**
      * A block at {@code (x,y,z)} changed: its own light and the light of the
-     * cells around it may have to be recomputed.
+     * surrounding cells may have to be recomputed.
      */
     public void updateCubeNeighbourhood(int x, int y, int z) {
         updateCell(x, y, z);
@@ -149,7 +153,7 @@ public final class ExtendedLightEngine {
      * <p>The cells of the column itself follow the implicit column value on
      * their own, so the work is in the stored cells: the column's own arrays,
      * and - this is the important part - the cells of the four horizontal
-     * neighbours, which may still hold light that used to come from this
+     * neighbors, which may still hold light that used to come from this
      * column. Every stored cell between the two tops is re-derived and handed
      * to the BFS, which then carries the change outwards.</p>
      */
@@ -168,8 +172,8 @@ public final class ExtendedLightEngine {
         }
 
         // The band only has to be walked where light can actually be stored,
-        // which is where this column or one of its horizontal neighbours has a
-        // materialised block or light section.
+        // which is where this column or one of its horizontal neighbors has a
+        // materialized block or light section.
         int minSection = Integer.MAX_VALUE;
         int maxSection = Integer.MIN_VALUE;
         for (int dx = -1; dx <= 1; dx++) {
@@ -236,9 +240,9 @@ public final class ExtendedLightEngine {
     }
 
     /**
-     * Only look at the cell's own sky source, never at its neighbours: after a
+     * Only look at the cell's own sky source, never at its neighbors: after a
      * column top change a whole band of cells changes at once, and evaluating
-     * raw light against neighbours that still hold the old values makes removal
+     * raw light against neighbors that still hold the old values makes removal
      * and re-addition fight each other (light that should be gone survives and
      * values end up arbitrary).
      *
@@ -284,8 +288,12 @@ public final class ExtendedLightEngine {
                 if (sky) {
                     int top = column.top(x, z);
                     // The first sky visible cell of this column is the only new
-                    // light source the section can contain.
-                    if (top != ColumnLight.NO_TOP && top >= baseY && top < baseY + 16) {
+                    // light source the section can contain. Vanilla Y is never
+                    // seeded: writing it would put values into the extended
+                    // arrays for 0..255 and then mirror them into the vanilla
+                    // arrays, which are not ours to own.
+                    if (top != ColumnLight.NO_TOP && top >= baseY && top < baseY + 16
+                            && HeightConstants.isExtendedY(top)) {
                         if (column.getLightFor(EnumSkyBlock.SKY, x, top, z) != 15) {
                             changed = true;
                         }
@@ -310,6 +318,9 @@ public final class ExtendedLightEngine {
                 int x = baseX + lx;
                 int y = baseY + ly;
                 int z = baseZ + lz;
+                if (!HeightConstants.isExtendedY(y)) {
+                    continue;
+                }
                 IBlockState state = storage.get(lx, ly, lz);
                 int emitted = state.getBlock().getLightValue(
                         state, this.world, this.mutablePos.setPos(x, y, z));
@@ -323,7 +334,7 @@ public final class ExtendedLightEngine {
             }
         }
 
-        // Shell: light from the neighbouring sections has to be pulled in.
+        // Shell: light from the neighboring sections has to be pulled in.
         for (int ly = 0; ly < 16; ly++) {
             int y = baseY + ly;
             for (int lz = 0; lz < 16; lz++) {
@@ -333,6 +344,9 @@ public final class ExtendedLightEngine {
                         continue;
                     }
                     int x = baseX + lx;
+                    if (!HeightConstants.isExtendedY(y)) {
+                        continue;
+                    }
                     if (sky) {
                         int before = column.getLightFor(EnumSkyBlock.SKY, x, y, z);
                         if (before > 0) {
@@ -378,6 +392,11 @@ public final class ExtendedLightEngine {
         if (this.scheduledSections.add(key)) {
             this.pendingSections.add(new int[]{chunkX, sectionY, chunkZ});
         }
+    }
+
+    /** A column was rebuilt and wants to know when it may be trusted again. */
+    void addTrustPending(ColumnLight column) {
+        this.trustPending.add(column);
     }
 
     private static long sectionKey(int chunkX, int chunkZ, int sectionY) {
@@ -512,7 +531,7 @@ public final class ExtendedLightEngine {
     public boolean tick() {
         this.cacheValid = true;
         // Converge: removals first, then additions, then recompute the cells
-        // whose neighbours changed and run again until nothing is left. This is
+        // whose neighbors changed and run again until nothing is left. This is
         // what keeps the field consistent no matter in which order blocks
         // changed during the tick.
         for (int pass = 0; pass < 8; pass++) {
@@ -520,13 +539,13 @@ public final class ExtendedLightEngine {
             budget = runRemove(this.skyRemove, EnumSkyBlock.SKY, budget);
             budget = runRemove(this.blockRemove, EnumSkyBlock.BLOCK, budget);
             budget = runAdd(this.skyAdd, EnumSkyBlock.SKY, budget);
-            budget = runAdd(this.blockAdd, EnumSkyBlock.BLOCK, budget);
+            runAdd(this.blockAdd, EnumSkyBlock.BLOCK, budget);
             if (this.dirty.isEmpty()) {
                 break;
             }
             runDirty();
         }
-        runSectionInit(MAX_SECTIONS_PER_TICK);
+        runSectionInit();
         this.cacheValid = false;
 
         this.dirty.compact();
@@ -536,8 +555,33 @@ public final class ExtendedLightEngine {
             this.skyRemove.compact();
             this.blockAdd.compact();
             this.blockRemove.compact();
+            resolveTrust();
         }
         return done;
+    }
+
+    /**
+     * Nothing is queued anymore, so every column that was rebuilt from block
+     * data now holds a consistent field and may be written to disk as such.
+     * Without this the {@code inf:Light} tag was never written again and every
+     * single load recomputed the whole extended region.
+     */
+    private void resolveTrust() {
+        if (this.trustPending.isEmpty()) {
+            return;
+        }
+        java.util.Iterator<ColumnLight> it = this.trustPending.iterator();
+        while (it.hasNext()) {
+            ColumnLight column = it.next();
+            if (column == null) {
+                it.remove();
+                continue;
+            }
+            if (column.isSettled()) {
+                column.markTrusted();
+                it.remove();
+            }
+        }
     }
 
     public boolean hasPendingWork() {
@@ -646,24 +690,36 @@ public final class ExtendedLightEngine {
         queue.compact();
     }
 
-    private int runSectionInit(int maxSections) {
+    private void runSectionInit() {
         int done = 0;
-        while (done < maxSections) {
+        while (done < ExtendedLightEngine.MAX_SECTIONS_PER_TICK) {
             int[] next = this.pendingSections.poll();
             if (next == null) {
                 break;
             }
             this.scheduledSections.remove(sectionKey(next[0], next[2], next[1]));
             done++;
+            int firstY = next[1] << 4;
+            if (HeightConstants.isVanillaY(firstY) && HeightConstants.isVanillaY(firstY + 15)) {
+                // A vanilla section can never hold extended light; the cascade
+                // below reaches one section past the seam on purpose.
+                continue;
+            }
             ColumnLight column = columnAt(next[0] << 4, next[2] << 4);
-            if (column == null || column.isSuspended()) {
+            if (column == null) {
+                continue;
+            }
+            // Counts towards this column's rebuild progress even when the
+            // section itself is skipped for being suspended.
+            column.seedConsumed();
+            if (column.isSuspended()) {
                 continue;
             }
             // A section only learns about light that already exists next door,
             // and sections are loaded in an arbitrary order. A section seeded
-            // before its neighbour therefore pulls zeros and would stay dark
+            // before its neighbor therefore pulls zeros and would stay dark
             // until some block update happens to touch it. Whenever this
-            // section actually gained light, queue its neighbours again: the
+            // section actually gained light, queue its neighbors again: the
             // values only ever grow, so this converges.
             if (initSection(column, next[1])) {
                 int cx = next[0];
@@ -677,7 +733,6 @@ public final class ExtendedLightEngine {
                 scheduleSectionInit(cx, cz + 1, sy);
             }
         }
-        return done;
     }
     private boolean canSeeSky(int x, int y, int z) {
         ColumnLight column = columnAt(x, z);

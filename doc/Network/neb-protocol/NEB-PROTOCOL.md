@@ -3,7 +3,6 @@
 本文档描述 Not Enough Bandwidth（NEB）本地源码副本中的聚合/压缩协议，用于与本仓库的 `improved_channel` / `improved_vanilla` 对照。
 
 - 上游：<https://github.com/USS-Shenzhou/NotEnoughBandwidth>
-- 源码副本：`source/`
 - 许可证：GPL-3.0，见 [`LICENSE`](LICENSE)
 - 平台：NeoForge；本副本按 26.x/1.21.x 分支整理，具体版本以源码为准
 

@@ -352,9 +352,10 @@ public final class BGMAPI {
     }
 
     private static List<EntityPlayerMP> onlinePlayers() {
-        if (FMLCommonHandler.instance().getMinecraftServerInstance() == null
-                || FMLCommonHandler.instance().getMinecraftServerInstance().getPlayerList() == null) {
+        if (FMLCommonHandler.instance().getMinecraftServerInstance() == null) {
             return new ArrayList<>();
+        } else {
+            FMLCommonHandler.instance().getMinecraftServerInstance();
         }
         return new ArrayList<>(FMLCommonHandler.instance()
                 .getMinecraftServerInstance().getPlayerList().getPlayers());

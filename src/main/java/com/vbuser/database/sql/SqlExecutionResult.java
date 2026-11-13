@@ -19,6 +19,7 @@ import java.util.Map;
  *   <li>failure: {@code !isSuccess()}, see {@link #getErrorMessage()}.</li>
  * </ul>
  */
+@SuppressWarnings("unused")
 public class SqlExecutionResult {
 
     private static final int MAX_ROWS_ON_THE_WIRE = 1 << 20;

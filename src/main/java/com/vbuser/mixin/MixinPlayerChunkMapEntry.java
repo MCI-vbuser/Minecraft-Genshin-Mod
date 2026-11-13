@@ -1,9 +1,9 @@
 package com.vbuser.mixin;
 
 import com.vbuser.inf.HeightConstants;
-import com.vbuser.inf.InfiniteHeight;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
+import com.vbuser.inf.network.ExtendedPacketQueue;
 import com.vbuser.inf.network.SPacketExtendedSection;
 import com.vbuser.inf.network.SPacketExtendedTileEntity;
 import net.minecraft.block.Block;
@@ -39,14 +39,14 @@ public abstract class MixinPlayerChunkMapEntry {
 
     @Inject(method = "sendToPlayers", at = @At("RETURN"))
     private void inf$sendExtendedBlocksAll(CallbackInfoReturnable<Boolean> cir) {
-        if (this.chunk == null) {
+        if (this.chunk == null || !HeightConstants.isExtendedWorld(this.chunk.getWorld())) {
             return;
         }
 
         List<SPacketExtendedSection> packets = inf$buildExtendedPackets();
         for (EntityPlayerMP player : this.players) {
             for (SPacketExtendedSection packet : packets) {
-                InfiniteHeight.NETWORK.sendTo(packet, player);
+                ExtendedPacketQueue.sendSection(player, packet);
             }
             inf$sendExtendedTileEntitiesTo(player);
         }
@@ -57,11 +57,11 @@ public abstract class MixinPlayerChunkMapEntry {
             at = @At("TAIL")
     )
     private void inf$sendExtendedBlocksOne(EntityPlayerMP player, CallbackInfo ci) {
-        if (this.chunk == null) {
+        if (this.chunk == null || !HeightConstants.isExtendedWorld(this.chunk.getWorld())) {
             return;
         }
         for (SPacketExtendedSection packet : inf$buildExtendedPackets()) {
-            InfiniteHeight.NETWORK.sendTo(packet, player);
+            ExtendedPacketQueue.sendSection(player, packet);
         }
         inf$sendExtendedTileEntitiesTo(player);
     }
@@ -113,8 +113,8 @@ public abstract class MixinPlayerChunkMapEntry {
                 continue;
             }
             NBTTagCompound nbt = te.getUpdateTag();
-            InfiniteHeight.NETWORK.sendTo(
-                    new SPacketExtendedTileEntity(pos, nbt), player);
+            ExtendedPacketQueue.sendTileEntity(
+                    player, new SPacketExtendedTileEntity(pos, nbt));
         }
     }
 }

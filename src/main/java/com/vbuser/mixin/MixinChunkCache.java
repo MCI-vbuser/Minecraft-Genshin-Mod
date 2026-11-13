@@ -18,8 +18,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * {@code ChunkCache} is the {@code IBlockAccess} used while a chunk mesh is
- * built. For Y outside {@code 0..255} it unconditionally answers "air, sky
- * light 15, block light 0", which renders the vanilla side of the
+ * built. For Y outside {@code 0..255} it unconditionally answers "air, skylight
+ * 15, block light 0", which renders the vanilla side of the
  * {@code Y=0/-1} and {@code Y=255/256} seams as if it were open sky.
  *
  * <p>This mixin answers from the chunks already cached in the instance, so it
@@ -45,6 +45,9 @@ public abstract class MixinChunkCache {
         if (!HeightConstants.isExtendedY(pos.getY())) {
             return;
         }
+        if (!HeightConstants.isExtendedWorld(this.world)) {
+            return;
+        }
         Chunk chunk = inf$chunk(pos);
         cir.setReturnValue(chunk == null ? Blocks.AIR.getDefaultState() : chunk.getBlockState(pos));
     }
@@ -59,6 +62,9 @@ public abstract class MixinChunkCache {
         if (!HeightConstants.isExtendedY(pos.getY())) {
             return;
         }
+        if (!HeightConstants.isExtendedWorld(this.world)) {
+            return;
+        }
         Chunk chunk = inf$chunk(pos);
         cir.setReturnValue(chunk == null ? type.defaultLightValue : chunk.getLightFor(type, pos));
     }
@@ -71,6 +77,9 @@ public abstract class MixinChunkCache {
     private void inf$getLightForExt(EnumSkyBlock type, BlockPos pos,
                                     CallbackInfoReturnable<Integer> cir) {
         if (!HeightConstants.isExtendedY(pos.getY())) {
+            return;
+        }
+        if (!HeightConstants.isExtendedWorld(this.world)) {
             return;
         }
         if (type == EnumSkyBlock.SKY && !this.world.provider.hasSkyLight()) {

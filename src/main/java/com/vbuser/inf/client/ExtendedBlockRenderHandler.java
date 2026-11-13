@@ -1,5 +1,6 @@
 package com.vbuser.inf.client;
 
+import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.InfiniteHeight;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
@@ -13,6 +14,7 @@ import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.renderer.vertex.VertexBuffer;
@@ -25,14 +27,18 @@ import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
+import net.minecraftforge.event.world.WorldEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.opengl.GL11;
 
+import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,33 +50,48 @@ import java.util.Map;
  * call vanilla uses, from the same {@code ChunkCache}, and rebuilt when a block
  * or a light value inside them changes. The vertices therefore carry the same
  * per-vertex light and ambient occlusion as a vanilla chunk mesh.</p>
+ *
+ * <p>Visibility follows the vanilla settings instead of a hard coded radius:
+ * the horizontal radius comes from {@code renderDistanceChunks}, and each
+ * section is frustum culled before it is drawn. There is deliberately no
+ * vertical radius - a build 300 blocks below the player has to stay visible
+ * when looking down, exactly like the 0..255 region does.</p>
  */
 @SideOnly(Side.CLIENT)
 @Mod.EventBusSubscriber(modid = InfiniteHeight.MODID, value = Side.CLIENT)
 public class ExtendedBlockRenderHandler {
 
-    private static final int CHUNK_RADIUS = 6;
-    private static final int MAX_DIST = 96;
-    private static final double MAX_DIST_SQ = MAX_DIST * MAX_DIST;
     private static final int MAX_REBUILDS_PER_FRAME = 6;
 
-    /** BLOCK vertex format: 3f position, 4ub colour, 2f uv, 2s lightmap = 28 bytes. */
+    /** A section further away than the render distance plus this margin is dropped. */
+    private static final int DISTANCE_MARGIN = 16;
+
+    /** BLOCK vertex format: 3f position, 4ub color, 2f uv, 2s lightmap = 28 bytes. */
     private static final int BLOCK_STRIDE = 28;
 
-
+    /** Cleanup walks every mesh, so it runs every N frames instead of every frame. */
+    private static final int CLEANUP_INTERVAL = 20;
 
     private static final Map<Long, SectionMesh> MESHES = new HashMap<>();
     private static final LongSet DIRTY = new LongOpenHashSet();
 
+    private static final List<SectionMesh> VISIBLE = new ArrayList<>();
+    private static final Comparator<SectionMesh> FAR_FIRST =
+            (a, b) -> Double.compare(b.distanceSq, a.distanceSq);
+
+    private static int frameCounter;
 
     static {
         LightRenderHook.install((world, x, y, z) -> {
             if (world != Minecraft.getMinecraft().world) {
                 return;
             }
+            if (!HeightConstants.isExtendedWorld(world)) {
+                return;
+            }
             markSectionDirty(x >> 4, z >> 4, y >> 4);
-            // A change on a section border also affects the neighbour's culling
-            // and its baked neighbour sampling.
+            // A change on a section border also affects the neighbor's culling
+            // and its baked neighbor sampling.
             if ((x & 15) == 0) {
                 markSectionDirty((x >> 4) - 1, z >> 4, y >> 4);
             } else if ((x & 15) == 15) {
@@ -98,6 +119,23 @@ public class ExtendedBlockRenderHandler {
                 | (sectionY & 0xFFF);
     }
 
+    /** Leaving a world / changing dimension: the GL buffers belong to that world. */
+    @SubscribeEvent
+    public static void onWorldUnload(WorldEvent.Unload event) {
+        if (event.getWorld() != null && event.getWorld().isRemote) {
+            clearAll();
+        }
+    }
+
+    private static void clearAll() {
+        for (SectionMesh mesh : MESHES.values()) {
+            mesh.delete();
+        }
+        MESHES.clear();
+        DIRTY.clear();
+        VISIBLE.clear();
+    }
+
     @SubscribeEvent
     public static void onRenderWorldLast(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
@@ -106,19 +144,42 @@ public class ExtendedBlockRenderHandler {
         if (view == null || world == null) {
             return;
         }
+        if (!HeightConstants.isExtendedWorld(world)) {
+            if (!MESHES.isEmpty()) {
+                clearAll();
+            }
+            return;
+        }
+
         float partial = event.getPartialTicks();
         double vx = view.lastTickPosX + (view.posX - view.lastTickPosX) * partial;
         double vy = view.lastTickPosY + (view.posY - view.lastTickPosY) * partial;
         double vz = view.lastTickPosZ + (view.posZ - view.lastTickPosZ) * partial;
 
-        int minCX = view.chunkCoordX - CHUNK_RADIUS;
-        int maxCX = view.chunkCoordX + CHUNK_RADIUS;
-        int minCZ = view.chunkCoordZ - CHUNK_RADIUS;
-        int maxCZ = view.chunkCoordZ + CHUNK_RADIUS;
+        // Vanilla setting, not a hard coded radius.
+        int renderDistance = Math.max(2, mc.gameSettings.renderDistanceChunks);
+        double maxDist = renderDistance * 16.0 + DISTANCE_MARGIN;
+        double maxDistSq = maxDist * maxDist;
+
+        Frustum frustum = new Frustum();
+        frustum.setPosition(vx, vy, vz);
+
+        int chunkRadius = renderDistance + 1;
+        int minCX = view.chunkCoordX - chunkRadius;
+        int maxCX = view.chunkCoordX + chunkRadius;
+        int minCZ = view.chunkCoordZ - chunkRadius;
+        int maxCZ = view.chunkCoordZ + chunkRadius;
 
         int rebuilt = 0;
         for (int cx = minCX; cx <= maxCX; cx++) {
             for (int cz = minCZ; cz <= maxCZ; cz++) {
+                double centerX = (cx << 4) + 8;
+                double centerZ = (cz << 4) + 8;
+                double dx = Math.max(Math.abs(centerX - vx) - 8, 0);
+                double dz = Math.max(Math.abs(centerZ - vz) - 8, 0);
+                if (dx * dx + dz * dz > maxDistSq) {
+                    continue;
+                }
                 Chunk chunk = world.getChunkProvider().getLoadedChunk(cx, cz);
                 if (chunk == null) {
                     continue;
@@ -129,16 +190,11 @@ public class ExtendedBlockRenderHandler {
                 }
                 for (Map.Entry<Integer, ExtendedBlockStorage> entry : col.getSections().entrySet()) {
                     int sectionY = entry.getKey();
-                    int baseY = sectionY << 4;
-                    if (baseY + 16 < vy - MAX_DIST || baseY > vy + MAX_DIST) {
-                        continue;
-                    }
-                    double sx = Math.max(Math.abs((cx << 4) + 8 - vx) - 8, 0);
-                    double sy = Math.max(Math.abs(baseY + 8 - vy) - 8, 0);
-                    double sz = Math.max(Math.abs((cz << 4) + 8 - vz) - 8, 0);
-                    if (sx * sx + sy * sy + sz * sz > MAX_DIST_SQ) {
-                        continue;
-                    }
+                    double centerY = (sectionY << 4) + 8;
+                    double dy = Math.max(Math.abs(centerY - vy) - 8, 0);
+                    // Vertical distance does not cull: looking straight down at a
+                    // build far below must still draw it. The frustum test below
+                    // is what rejects off-screen sections.
                     long key = key(cx, cz, sectionY);
                     SectionMesh mesh = MESHES.get(key);
                     if (mesh == null) {
@@ -146,6 +202,7 @@ public class ExtendedBlockRenderHandler {
                         MESHES.put(key, mesh);
                         DIRTY.add(key);
                     }
+                    mesh.distanceSq = dx * dx + dy * dy + dz * dz;
                     if (rebuilt < MAX_REBUILDS_PER_FRAME && DIRTY.contains(key)) {
                         rebuild(world, chunk, col, mesh);
                         DIRTY.remove(key);
@@ -154,27 +211,31 @@ public class ExtendedBlockRenderHandler {
                 }
             }
         }
-        if (DIRTY.size() > 8192) {
-            DIRTY.clear();
+
+        if (++frameCounter % CLEANUP_INTERVAL == 0 || DIRTY.size() > 8192) {
+            cleanup(world, vx, vz, maxDistSq);
         }
 
-        MESHES.entrySet().removeIf(e -> {
-            SectionMesh mesh = e.getValue();
-            Chunk chunk = world.getChunkProvider().getLoadedChunk(mesh.chunkX, mesh.chunkZ);
-            if (chunk == null) {
-                mesh.delete();
-                return true;
-            }
-            ExtendedColumn column = ColumnManager.getIfPresent(chunk);
-            if (column == null || column.getSection(mesh.sectionY) == null) {
-                mesh.delete();
-                DIRTY.remove(e.getKey());
-                return true;
-            }
-            return false;
-        });
-
         if (MESHES.isEmpty()) {
+            return;
+        }
+
+        VISIBLE.clear();
+        double cullMargin = 16.0;
+        for (SectionMesh mesh : MESHES.values()) {
+            if (mesh.isEmptyBoth()) {
+                continue;
+            }
+            double x0 = (mesh.chunkX << 4) - cullMargin;
+            double z0 = (mesh.chunkZ << 4) - cullMargin;
+            double y0 = (mesh.sectionY << 4) - cullMargin;
+            if (!frustum.isBoxInFrustum(x0, y0, z0,
+                    x0 + 16 + cullMargin * 2, y0 + 16 + cullMargin * 2, z0 + 16 + cullMargin * 2)) {
+                continue;
+            }
+            VISIBLE.add(mesh);
+        }
+        if (VISIBLE.isEmpty()) {
             return;
         }
 
@@ -189,7 +250,6 @@ public class ExtendedBlockRenderHandler {
 
         // The vertex arrays have to be enabled by hand here: vanilla does it in
         // RenderGlobal before it draws its own chunk layers.
-        boolean[] states = {true, true};
         GlStateManager.glEnableClientState(GL11.GL_VERTEX_ARRAY);
         OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
         GlStateManager.glEnableClientState(GL11.GL_TEXTURE_COORD_ARRAY);
@@ -198,11 +258,11 @@ public class ExtendedBlockRenderHandler {
         OpenGlHelper.setClientActiveTexture(OpenGlHelper.defaultTexUnit);
         GlStateManager.glEnableClientState(GL11.GL_COLOR_ARRAY);
 
-        // The per-vertex AO lives in the colour array, and the ambient
+        // The per-vertex AO lives in the color array, and the ambient
         // occlusion and light interpolation are only smooth when the shade
         // model is GL_SMOOTH. Whatever ran before this pass (hand, particles,
         // outline) may have left it at GL_FLAT, which collapses every quad to
-        // one colour - the "flat face with hard steps" look.
+        // one color - the "flat face with hard steps" look.
         GlStateManager.shadeModel(GL11.GL_SMOOTH);
         GlStateManager.enableAlpha();
         GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
@@ -218,6 +278,9 @@ public class ExtendedBlockRenderHandler {
                 GlStateManager.SourceFactor.ONE,
                 GlStateManager.DestFactor.ZERO);
         GlStateManager.depthMask(false);
+        // Vanilla sorts its translucent render chunks back to front; without
+        // this water and glass behind each other blend in arbitrary order.
+        VISIBLE.sort(FAR_FIRST);
         drawLayer(true);
         GlStateManager.depthMask(true);
         GlStateManager.disableBlend();
@@ -236,10 +299,46 @@ public class ExtendedBlockRenderHandler {
         GlStateManager.popMatrix();
     }
 
+    /**
+     * Drop meshes whose chunk/section disappeared or that drifted out of the
+     * render distance. Runs on the render thread, where the GL buffers live.
+     */
+    private static void cleanup(World world, double vx, double vz, double maxDistSq) {
+        if (MESHES.isEmpty()) {
+            return;
+        }
+        double unloadSq = maxDistSq + 32 * 32;
+        MESHES.entrySet().removeIf(e -> {
+            SectionMesh mesh = e.getValue();
+            double centerX = (mesh.chunkX << 4) + 8;
+            double centerZ = (mesh.chunkZ << 4) + 8;
+            double dx = Math.max(Math.abs(centerX - vx) - 8, 0);
+            double dz = Math.max(Math.abs(centerZ - vz) - 8, 0);
+            if (dx * dx + dz * dz > unloadSq) {
+                mesh.delete();
+                DIRTY.remove(e.getKey());
+                return true;
+            }
+            Chunk chunk = world.getChunkProvider().getLoadedChunk(mesh.chunkX, mesh.chunkZ);
+            if (chunk == null) {
+                mesh.delete();
+                DIRTY.remove(e.getKey());
+                return true;
+            }
+            ExtendedColumn column = ColumnManager.getIfPresent(chunk);
+            if (column == null || column.getSection(mesh.sectionY) == null) {
+                mesh.delete();
+                DIRTY.remove(e.getKey());
+                return true;
+            }
+            return false;
+        });
+    }
+
     private static void drawLayer(boolean translucent) {
-        for (SectionMesh mesh : MESHES.values()) {
+        for (SectionMesh mesh : VISIBLE) {
             VertexBuffer buffer = translucent ? mesh.translucent : mesh.opaque;
-            if (buffer == null || mesh.isEmpty(translucent)) {
+            if (mesh.isEmpty(translucent)) {
                 continue;
             }
             buffer.bindBuffer();
@@ -285,8 +384,6 @@ public class ExtendedBlockRenderHandler {
         int translucent = buildLayer(dispatcher, buf, cache, ebs, nonAir, baseX, baseY, baseZ, true);
         mesh.upload(true, buf);
         mesh.reset(opaque, translucent);
-
-
     }
 
     private static int buildLayer(BlockRendererDispatcher dispatcher, BufferBuilder buf,
@@ -329,6 +426,7 @@ public class ExtendedBlockRenderHandler {
         final VertexBuffer translucent = new VertexBuffer(DefaultVertexFormats.BLOCK);
         int opaqueBlocks;
         int translucentBlocks;
+        double distanceSq;
 
         SectionMesh(int chunkX, int chunkZ, int sectionY) {
             this.chunkX = chunkX;
@@ -338,6 +436,10 @@ public class ExtendedBlockRenderHandler {
 
         boolean isEmpty(boolean translucentLayer) {
             return (translucentLayer ? this.translucentBlocks : this.opaqueBlocks) <= 0;
+        }
+
+        boolean isEmptyBoth() {
+            return this.opaqueBlocks <= 0 && this.translucentBlocks <= 0;
         }
 
         void reset(int opaqueCount, int translucentCount) {

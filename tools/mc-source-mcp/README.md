@@ -8,6 +8,12 @@ the whole bridge on or off per conversation.
 
 Installed as `@local/mc-source` in the `desktop` profile.
 
+## 2026-11-12 修复
+
+- `client.js` 曾从包中丢失，导致客户端模块构建失败、草方块按钮不出现；已补回。按钮注册在 `conversation.input.right`，通过 `ctx.remote.commands.execute(sessionId, "/mc on|off", [])` 走正常命令通道。
+- `index.js` 之前把 `ctx.sessionProjections.stateOf(...)` 当成服务方法调用（服务只有 `register` / `snapshot`，`stateOf` 在注册返回的 handle 上），并且用 generator effect 的 `yield` 等待异步注册。现在 `apply` 是 async，`await ctx.sessionProjections.register(...)` 后保留 handle，section 和 guard 都从 handle 读状态。
+- 结果：bundle 重新启用，`mc-source-mcp` / `idea-bridge` / `mc-source-toggle` 三行均 active；已有 `/mc on` 命令的对话会在重载后自动折回为 ON。
+
 ## Components
 
 | Server | Transport | Purpose |
@@ -138,7 +144,7 @@ After editing an installed bundle's patch, reinstall it:
 - `mcp__mc__status` → should report 2883 classes.
 - `mcp__mc__class_outline` on `net.minecraft.entity.EntityLivingBase` → 237
   members.
-- `mcp__idea__status` → `connected: true`, `exposedTools: 16`.
+- `mcp__idea__status` → `connected: true`, `ideTools: 65`, `exposedTools: 16`.
 - `mcp__idea__get_project_modules` → `mdk`, `mdk.main`, `mdk.test`.
 - `mcp__idea__search_classes` on `AnimatedGeoModel` → GeckoLib jar path.
 - `mcp__idea__class_outline` on `software.bernie.geckolib3.model.AnimatedGeoModel`

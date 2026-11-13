@@ -321,7 +321,6 @@ public class CloudVolumeRenderer {
             uCompInvSize   = GL20.glGetUniformLocation(compositeProgram, "invTargetSize");
         } catch (Exception e) {
             System.err.println("[CloudVolumeRenderer] Shader initialization failed!");
-            e.printStackTrace();
             volumeProgram = 0;
             compositeProgram = 0;
         }
@@ -435,15 +434,12 @@ public class CloudVolumeRenderer {
         }
 
         renderVolumePass(cameraPos, forward, right, up, min, max, sunDir, sunColor, skyColor,
-                tanHalfFov, aspect, NEAR_PLANE, farPlane, baseDensity, time, stepCount);
+                tanHalfFov, aspect, farPlane, baseDensity, time, stepCount);
 
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
+        GL11.glViewport(0, 0, width, height);
         if (useHalf) {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
-            GL11.glViewport(0, 0, width, height);
-            compositeCloudToScreen(width, height, targetW, targetH);
-        } else {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
-            GL11.glViewport(0, 0, width, height);
+            compositeCloudToScreen(targetW, targetH);
         }
     }
 
@@ -451,7 +447,7 @@ public class CloudVolumeRenderer {
                                   BlockPos min, BlockPos max,
                                   Vec3d sunDir, Vec3d sunColor, Vec3d skyColor,
                                   float tanHalfFov, float aspect,
-                                  float nearPlane, float farPlane,
+                                  float farPlane,
                                   float baseDensity, float time, int stepCount) {
         GlStateManager.disableDepth();
         GlStateManager.depthMask(false);
@@ -475,7 +471,7 @@ public class CloudVolumeRenderer {
         GL20.glUniform3f(uNoiseOffset, noiseOffsetX, noiseOffsetY, noiseOffsetZ);
         GL20.glUniform1f(uTanHalfFov, tanHalfFov);
         GL20.glUniform1f(uAspect,     aspect);
-        GL20.glUniform1f(uNearPlane,  nearPlane);
+        GL20.glUniform1f(uNearPlane, CloudVolumeRenderer.NEAR_PLANE);
         GL20.glUniform1f(uFarPlane,   farPlane);
         GL20.glUniform1f(uBaseDensity, baseDensity);
         GL20.glUniform1f(uTime,       time);
@@ -502,7 +498,7 @@ public class CloudVolumeRenderer {
         GL20.glUseProgram(0);
     }
 
-    private void compositeCloudToScreen(int width, int height, int cloudW, int cloudH) {
+    private void compositeCloudToScreen(int cloudW, int cloudH) {
         GlStateManager.enableBlend();
         GlStateManager.blendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GlStateManager.disableDepth();

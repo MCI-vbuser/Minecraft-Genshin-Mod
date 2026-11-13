@@ -45,8 +45,8 @@ final class MFAudioPlayer {
     private static final int ATTR_SET_GUID = 24;
 
     private static NativeLibrary mfplat;
-    private static NativeLibrary mfreadwrite;
-    private static NativeLibrary ole32;
+    static NativeLibrary mfreadwrite;
+    static NativeLibrary ole32;
     private static Function MFStartup;
     private static Function MFShutdown;
     private static Function MFCreateAttributes;
@@ -338,7 +338,7 @@ final class MFAudioPlayer {
 
     private static int hr(Pointer object, int vtableIndex, Object... extraArgs) {
         Function function = Function.getFunction(object.getPointer(0)
-                .getPointer(vtableIndex * Native.POINTER_SIZE));
+                .getPointer((long) vtableIndex * Native.POINTER_SIZE));
         Object[] all = new Object[extraArgs.length + 1];
         all[0] = object;
         System.arraycopy(extraArgs, 0, all, 1, extraArgs.length);
