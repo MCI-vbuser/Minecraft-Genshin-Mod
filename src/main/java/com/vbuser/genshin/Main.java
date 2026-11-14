@@ -1,6 +1,7 @@
 package com.vbuser.genshin;
 
 import com.vbuser.genshin.client.renderer.CloudVolumeRenderer;
+import com.vbuser.genshin.command.CommandCloud;
 import com.vbuser.genshin.command.CommandCloudFill;
 import com.vbuser.genshin.debug.CameraPos;
 import com.vbuser.genshin.proxy.CommonProxy;
@@ -14,6 +15,7 @@ import com.vbuser.genshin.tool.mcgit.UpdateCommand;
 import com.vbuser.genshin.tool.network.NetworkManager;
 import com.vbuser.genshin.tool.network.example.ClientEventHandler;
 import com.vbuser.genshin.tool.network.example.ServerEventHandler;
+import net.minecraftforge.client.ClientCommandHandler;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.SidedProxy;
@@ -32,6 +34,9 @@ public class Main {
 
     @Mod.Instance
     public static Main instance;
+
+    /** Registered for {@code /cloudfill} and for its server tick handler. */
+    private static final CommandCloudFill CLOUD_FILL = new CommandCloudFill();
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -63,7 +68,15 @@ public class Main {
         // Register Camera Position Tracker.
         MinecraftForge.EVENT_BUS.register(new CameraPos());
 
-        MinecraftForge.EVENT_BUS.register(new CloudVolumeRenderer());
+        if (event.getSide().isClient()) {
+            // Volumetric clouds need a GL context, so client only.
+            MinecraftForge.EVENT_BUS.register(new CloudVolumeRenderer());
+            ClientCommandHandler.instance.registerCommand(new CommandCloud());
+        }
+        // /cloudfill applies its blocks over several ticks, so the command object
+        // is also a tick listener and must be registered exactly once (the server
+        // command list itself is rebuilt for every world).
+        MinecraftForge.EVENT_BUS.register(CLOUD_FILL);
     }
 
     @Mod.EventHandler
@@ -71,7 +84,7 @@ public class Main {
         event.registerServerCommand(new CommandBGM());
         event.registerServerCommand(new CommandCG());
         event.registerServerCommand(new UpdateCommand());
-        event.registerServerCommand(new CommandCloudFill());
+        event.registerServerCommand(CLOUD_FILL);
     }
 
     @Mod.EventHandler

@@ -1,7 +1,7 @@
 package com.vbuser.genshin.block;
 
-import com.vbuser.genshin.client.renderer.CloudVolumeTracker;
-import com.vbuser.genshin.math.PerlinNoise;
+import com.vbuser.genshin.client.renderer.CloudVolumeRenderer;
+import com.vbuser.genshin.math.CloudShape;
 import com.vbuser.genshin.util.IHasModel;
 import net.minecraft.block.SoundType;
 import net.minecraft.block.material.Material;
@@ -13,13 +13,21 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.IBlockAccess;
-import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
 import javax.annotation.Nullable;
-import java.util.Random;
 
+/**
+ * A cloud block.
+ *
+ * <p>Cloud blocks are a data store, not geometry: the {@code DENSITY} property
+ * is read by {@link com.vbuser.genshin.client.renderer.CloudVolumeTracker} and
+ * turned into a 3D density texture that the volumetric renderer raymarches.
+ * The block itself renders nothing, except when the volumetric renderer could
+ * not initialise (no 3D textures / shader failure), in which case it falls back
+ * to plain translucent cubes so clouds never disappear entirely.</p>
+ */
 @SuppressWarnings("all")
 public class BlockCloud extends BlockBase implements IHasModel {
     public static final PropertyInteger DENSITY = PropertyInteger.create("density", 0, 15);
@@ -77,23 +85,10 @@ public class BlockCloud extends BlockBase implements IHasModel {
     @Override
     @SideOnly(Side.CLIENT)
     public boolean shouldSideBeRendered(IBlockState blockState, IBlockAccess blockAccess, BlockPos pos, EnumFacing side) {
-        return false;
-    }
-
-    @Override
-    public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
-        if (worldIn.isRemote) {
-            CloudVolumeTracker.addCloud(worldIn.provider.getDimension(), pos, state.getValue(DENSITY));
-        }
-        super.onBlockAdded(worldIn, pos, state);
-    }
-
-    @Override
-    public void breakBlock(World worldIn, BlockPos pos, IBlockState state) {
-        if (worldIn.isRemote) {
-            CloudVolumeTracker.removeCloud(worldIn.provider.getDimension(), pos);
-        }
-        super.breakBlock(worldIn, pos, state);
+        // The volumetric renderer draws every cloud block at once; drawing the
+        // cubes as well would double the cloud. Only fall back to cubes when the
+        // volume path is unavailable.
+        return !CloudVolumeRenderer.isVolumeAvailable();
     }
 
     @Override
@@ -111,48 +106,8 @@ public class BlockCloud extends BlockBase implements IHasModel {
         return false;
     }
 
-    private static float fbm(float x, float y, float z, int octaves, float lacunarity, float gain) {
-        float value = 0.0f;
-        float amplitude = 1.0f;
-        float frequency = 1.0f;
-        float maxVal = 0.0f;
-        for (int i = 0; i < octaves; i++) {
-            value += amplitude * PerlinNoise.noise3d(x * frequency, y * frequency, z * frequency);
-            maxVal += amplitude;
-            amplitude *= gain;
-            frequency *= lacunarity;
-        }
-        return value / maxVal;
-    }
-
+    /** Shape sampled by {@code /cloudfill}; kept for callers of the old API. */
     public static float getCloudDensityNoise(int x, int y, int z, long seed, int minY, int maxY) {
-        Random rand = new Random(seed);
-        float offsetX = rand.nextFloat() * 10000;
-        float offsetY = rand.nextFloat() * 10000;
-        float offsetZ = rand.nextFloat() * 10000;
-
-        float nx = (x + offsetX) * 0.04f;
-        float ny = (y + offsetY) * 0.05f;
-        float nz = (z + offsetZ) * 0.04f;
-
-        float wx = fbm(nx * 2.0f, ny * 2.0f, nz * 2.0f, 2, 2.0f, 0.5f) * 12.0f;
-        float wy = fbm(nx * 2.0f + 100, ny * 2.0f, nz * 2.0f, 2, 2.0f, 0.5f) * 12.0f;
-        float wz = fbm(nx * 2.0f, ny * 2.0f, nz * 2.0f + 100, 2, 2.0f, 0.5f) * 12.0f;
-
-        float n = fbm(nx + wx * 0.05f, ny + wy * 0.05f, nz + wz * 0.05f, 4, 2.0f, 0.5f);
-        n = (n + 1.0f) * 0.5f;
-
-        float yRatio = (float)(y - minY) / Math.max(1.0f, (maxY - minY));
-        float heightFactor = 1.0f - (float)Math.pow(Math.abs(yRatio * 2.0f - 1.0f), 3.0f);
-
-        float weighted = n * heightFactor;
-
-        float threshold = 0.4f;
-        if (weighted < threshold) {
-            return 0.0f;
-        }
-
-        float mapped = (weighted - threshold) / (1.0f - threshold);
-        return mapped * mapped * (3 - 2 * mapped);
+        return CloudShape.density(x, y, z, seed, minY, maxY);
     }
 }

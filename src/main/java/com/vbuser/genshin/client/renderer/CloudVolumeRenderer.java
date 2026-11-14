@@ -4,269 +4,133 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ActiveRenderInfo;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.entity.Entity;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
-import net.minecraft.world.chunk.Chunk;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.event.world.WorldEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
-import org.lwjgl.opengl.*;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.ARBTimerQuery;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
+import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL15;
+import org.lwjgl.opengl.GL30;
 
-import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Random;
+import java.io.IOException;
+import java.nio.FloatBuffer;
+import java.util.Locale;
 
+/**
+ * Volumetric cloud renderer.
+ *
+ * <p>Pipeline per frame:</p>
+ * <ol>
+ *   <li>the cloud block field is uploaded as a 3D density texture
+ *       ({@link CloudDensityVolume}, incremental, frame budgeted),</li>
+ *   <li>a full screen pass raymarches that volume at a reduced resolution,</li>
+ *   <li>the result is upsampled with a depth aware filter.</li>
+ * </ol>
+ *
+ * <p>Cheap things that are aggressively avoided: the pass is skipped entirely
+ * when the camera cannot see the volume, the screen area outside the projected
+ * volume is scissored away, the depth buffer is only copied when the pass
+ * actually runs, and the resolution / step count follow the measured frame time
+ * (with a fixed quality override available through {@code /cloud}).</p>
+ */
+@SideOnly(Side.CLIENT)
 public class CloudVolumeRenderer {
 
-    // ================== 配置 ==================
-    private static final boolean HALF_RESOLUTION     = true;
-    private static final int     STEP_COUNT_HALF     = 10;     // 半分辨率步数
-    private static final int     STEP_COUNT_FULL     = 16;     // 全分辨率步数
-    private static final float   NEAR_PLANE          = 0.05f;
+    public static final int QUALITY_AUTO = 0;
+    public static final int QUALITY_LOW = 1;
+    public static final int QUALITY_MEDIUM = 2;
+    public static final int QUALITY_HIGH = 3;
 
-    // ================== 体积云着色器 ==================
-    private static final String VOLUME_VERT_SRC =
-            "#version 120\n" +
-                    "varying vec2 vUv;\n" +
-                    "void main() {\n" +
-                    "    vUv = gl_Vertex.xy * 0.5 + 0.5;\n" +
-                    "    gl_Position = vec4(gl_Vertex.xy, 0.0, 1.0);\n" +
-                    "}\n";
+    private static final String SHADER_PATH = "assets/genshin/shaders/";
+    private static final float MIN_SCALE = 0.3F;
+    private static final float MAX_SCALE = 1.0F;
+    /** Volume rebuild budget per frame, nanoseconds. */
+    private static final long REBUILD_BUDGET = 2_000_000L;
+    /** Chunk scan budget per client tick, nanoseconds. */
+    private static final long SCAN_BUDGET = 2_500_000L;
+    /** Skip the pass when the volume is further away than this. */
+    private static final double MAX_VOLUME_DISTANCE = 1200.0D;
 
-    private static final String VOLUME_FRAG_SRC =
-            "#version 120\n" +
-                    "uniform sampler2D depthTex;\n" +
-                    "uniform vec3 cameraPos;\n" +
-                    "uniform vec3 minBound;\n" +
-                    "uniform vec3 maxBound;\n" +
-                    "uniform vec3 camForward;\n" +
-                    "uniform vec3 camRight;\n" +
-                    "uniform vec3 camUp;\n" +
-                    "uniform vec3 sunDir;\n" +
-                    "uniform vec3 sunColor;\n" +
-                    "uniform vec3 skyColor;\n" +
-                    "uniform vec3 noiseOffset;\n" +
-                    "uniform float tanHalfFov;\n" +
-                    "uniform float aspect;\n" +
-                    "uniform float nearPlane;\n" +
-                    "uniform float farPlane;\n" +
-                    "uniform float baseDensity;\n" +
-                    "uniform float time;\n" +
-                    "uniform int   stepCount;\n" +
-                    "varying vec2 vUv;\n" +
-                    "\n" +
-                    "// 完全兼容 GLSL 120 的 4x4 Bayer 矩阵抖动\n" +
-                    "float bayer4(vec2 uv) {\n" +
-                    "    vec2 p = floor(mod(uv, 4.0));\n" +
-                    "    int x = int(p.x);\n" +
-                    "    int y = int(p.y);\n" +
-                    "    int idx = x + y * 4;\n" +
-                    "    float v = 0.0;\n" +
-                    "    if (idx == 0) v = 0.0;  else if (idx == 1) v = 8.0;\n" +
-                    "    else if (idx == 2) v = 2.0;  else if (idx == 3) v = 10.0;\n" +
-                    "    else if (idx == 4) v = 12.0; else if (idx == 5) v = 4.0;\n" +
-                    "    else if (idx == 6) v = 14.0; else if (idx == 7) v = 6.0;\n" +
-                    "    else if (idx == 8) v = 3.0;  else if (idx == 9) v = 11.0;\n" +
-                    "    else if (idx == 10) v = 1.0; else if (idx == 11) v = 9.0;\n" +
-                    "    else if (idx == 12) v = 15.0; else if (idx == 13) v = 7.0;\n" +
-                    "    else if (idx == 14) v = 13.0; else if (idx == 15) v = 5.0;\n" +
-                    "    return v / 16.0;\n" +
-                    "}\n" +
-                    "\n" +
-                    "float hash(vec3 p) {\n" +
-                    "    p = fract(p * vec3(0.1031, 0.1030, 0.0973));\n" +
-                    "    p += dot(p, p.yxz + 33.33);\n" +
-                    "    return fract((p.x + p.y) * p.z);\n" +
-                    "}\n" +
-                    "\n" +
-                    "float noise(vec3 p) {\n" +
-                    "    vec3 i = floor(p);\n" +
-                    "    vec3 f = fract(p);\n" +
-                    "    f = f * f * (3.0 - 2.0 * f);\n" +
-                    "    return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x),\n" +
-                    "                   mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),\n" +
-                    "               mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),\n" +
-                    "                   mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z) * 2.0 - 1.0;\n" +
-                    "}\n" +
-                    "\n" +
-                    "float fbm(vec3 p) {\n" +
-                    "    float value = 0.0;\n" +
-                    "    float amplitude = 0.5;\n" +
-                    "    for (int i = 0; i < 2; i++) {\n" +
-                    "        value += amplitude * noise(p);\n" +
-                    "        p *= 2.0;\n" +
-                    "        amplitude *= 0.5;\n" +
-                    "    }\n" +
-                    "    return value;\n" +
-                    "}\n" +
-                    "\n" +
-                    "float density(vec3 p) {\n" +
-                    "    vec3 dmin = p - minBound;\n" +
-                    "    vec3 dmax = maxBound - p;\n" +
-                    "    float inside = min(min(dmin.x, min(dmin.y, dmin.z)), min(dmax.x, min(dmax.y, dmax.z)));\n" +
-                    "    if (inside <= 0.0) return 0.0;\n" +
-                    "    float edge = smoothstep(0.0, 16.0, inside);\n" +
-                    "\n" +
-                    "    vec3 q = p + noiseOffset;\n" +
-                    "    vec3 warp = vec3(\n" +
-                    "        fbm(q * 0.06),\n" +
-                    "        fbm(q * 0.06 + vec3(13.4, 42.1, 91.2)),\n" +
-                    "        fbm(q * 0.06 + vec3(4.1, 7.3, 1.8))\n" +
-                    "    ) * 8.0;\n" +
-                    "    q += warp;\n" +
-                    "\n" +
-                    "    float n = fbm(q * vec3(0.04, 0.05, 0.04));\n" +
-                    "    n = n * 0.5 + 0.5;\n" +
-                    "\n" +
-                    "    float t = clamp((p.y - minBound.y) / max(maxBound.y - minBound.y, 0.1), 0.0, 1.0);\n" +
-                    "    float h = smoothstep(0.0, 0.2, t) * (1.0 - smoothstep(0.8, 1.0, t));\n" +
-                    "    float weighted = n * h;\n" +
-                    "\n" +
-                    "    float threshold = 0.35;\n" +
-                    "    if (weighted < threshold) return 0.0;\n" +
-                    "    return smoothstep(threshold, 0.75, weighted) * edge;\n" +
-                    "}\n" +
-                    "\n" +
-                    "bool intersectBox(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax, out float tMin, out float tMax) {\n" +
-                    "    vec3 invR = 1.0 / rd;\n" +
-                    "    vec3 t0 = (bmin - ro) * invR;\n" +
-                    "    vec3 t1 = (bmax - ro) * invR;\n" +
-                    "    vec3 tsmall = min(t0, t1);\n" +
-                    "    vec3 tbig = max(t0, t1);\n" +
-                    "    tMin = max(tsmall.x, max(tsmall.y, tsmall.z));\n" +
-                    "    tMax = min(tbig.x, min(tbig.y, tbig.z));\n" +
-                    "    return tMax >= max(tMin, 0.0);\n" +
-                    "}\n" +
-                    "\n" +
-                    "float phaseHG(float cosTheta, float g) {\n" +
-                    "    float g2 = g * g;\n" +
-                    "    return (1.0 - g2) / (4.0 * 3.14159265 * pow(max(1.0 + g2 - 2.0 * g * cosTheta, 0.0001), 1.5));\n" +
-                    "}\n" +
-                    "\n" +
-                    "float phaseDualLobe(float cosTheta) {\n" +
-                    "    return mix(phaseHG(cosTheta, 0.7), phaseHG(cosTheta, -0.2), 0.5);\n" +
-                    "}\n" +
-                    "\n" +
-                    "vec3 atmosphericSunColor(float sunHeight) {\n" +
-                    "    float t = clamp(sunHeight, 0.0, 1.0);\n" +
-                    "    vec3 sunset = vec3(1.0, 0.30, 0.10);\n" +
-                    "    vec3 noon   = vec3(1.0, 0.98, 0.92);\n" +
-                    "    vec3 base = mix(sunset, noon, smoothstep(0.0, 0.45, t));\n" +
-                    "    float below = smoothstep(0.0, -0.15, sunHeight);\n" +
-                    "    base = mix(base, vec3(0.28, 0.30, 0.45), below);\n" +
-                    "    float intensity = smoothstep(-0.15, 0.05, sunHeight);\n" +
-                    "    return base * mix(0.15, 1.0, intensity);\n" +
-                    "}\n" +
-                    "\n" +
-                    "void main() {\n" +
-                    "    float sceneDepth = texture2D(depthTex, vUv).r;\n" +
-                    "    if (sceneDepth <= 0.0 || sceneDepth >= 1.0) sceneDepth = 1.0;\n" +
-                    "    vec2 ndc = vUv * 2.0 - 1.0;\n" +
-                    "    vec3 rd = normalize(camForward + camRight * ndc.x * tanHalfFov * aspect + camUp * ndc.y * tanHalfFov);\n" +
-                    "    float ndcZ = sceneDepth * 2.0 - 1.0;\n" +
-                    "    float zVis = 2.0 * nearPlane * farPlane / (farPlane + nearPlane - ndcZ * (farPlane - nearPlane));\n" +
-                    "    float tScene = zVis / max(dot(rd, camForward), 0.0001);\n" +
-                    "\n" +
-                    "    vec3 ro = cameraPos;\n" +
-                    "    float tMin, tMax;\n" +
-                    "    if (!intersectBox(ro, rd, minBound, maxBound, tMin, tMax)) discard;\n" +
-                    "    float tStart = max(tMin, 0.0);\n" +
-                    "    float tEnd = min(tMax, tScene);\n" +
-                    "    if (tEnd <= tStart) discard;\n" +
-                    "\n" +
-                    "    float sigma = 0.5;\n" +
-                    "    float transmittance = 1.0;\n" +
-                    "    vec3 radiance = vec3(0.0);\n" +
-                    "    float cosTheta = dot(rd, sunDir);\n" +
-                    "    float phase = phaseDualLobe(cosTheta);\n" +
-                    "    vec3 sunCol = atmosphericSunColor(sunDir.y) * sunColor;\n" +
-                    "    \n" +
-                    "    vec3 ambientLight = skyColor * 0.35;\n" +
-                    "\n" +
-                    "    float jitter = bayer4(gl_FragCoord.xy);\n" +
-                    "    float dt = (tEnd - tStart) / float(stepCount);\n" +
-                    "    float t = tStart + jitter * dt;\n" +
-                    "    int emptySteps = 0;\n" +
-                    "\n" +
-                    "    for (int i = 0; i < 32; i++) {\n" +
-                    "        if (i >= stepCount || t > tEnd) break;\n" +
-                    "        vec3 pos = ro + rd * t;\n" +
-                    "        float dens = density(pos) * baseDensity;\n" +
-                    "        \n" +
-                    "        if (dens > 0.01) {\n" +
-                    "            emptySteps = 0;\n" +
-                    "            float stepT = exp(-sigma * dens * dt);\n" +
-                    "            \n" +
-                    "            float sunDepth = density(pos + sunDir * 5.0) * 5.0;\n" +
-                    "            float sunT = exp(-sunDepth * 1.5);\n" +
-                    "            float msScatter = exp(-sunDepth * 0.2);\n" +
-                    "            \n" +
-                    "            vec3 lightCol = sunCol * (phase * 1.5 + 0.2) * (sunT * 0.75 + msScatter * 0.25) + ambientLight;\n" +
-                    "            radiance += transmittance * (1.0 - stepT) * lightCol;\n" +
-                    "            transmittance *= stepT;\n" +
-                    "        } else {\n" +
-                    "            emptySteps++;\n" +
-                    "            if (emptySteps >= 2) {\n" +
-                    "                dt *= 1.5;\n" +
-                    "                emptySteps = 0;\n" +
-                    "            }\n" +
-                    "        }\n" +
-                    "        if (i > 3 && transmittance < 0.15) break;\n" +
-                    "        if (transmittance < 0.05) break;\n" +
-                    "        t += dt;\n" +
-                    "    }\n" +
-                    "\n" +
-                    "    float distFade = exp(-tStart * 0.0015);\n" +
-                    "    float alpha = (1.0 - transmittance) * distFade;\n" +
-                    "    vec3 color = vec3(1.0) - exp(-radiance * 2.2);\n" +
-                    "    gl_FragColor = vec4(color * alpha, alpha);\n" +
-                    "}\n";
+    // ---- user tunables (exposed through /cloud) ----
+    private static int qualityMode = QUALITY_AUTO;
+    private static float extinction = 0.25F;
+    private static float detailAmount = 0.15F;
+    private static float detailScale = 0.055F;
+    private static float isoLow = 0.045F;
+    private static float isoHigh = 0.17F;
+    private static float sunSoftness = 1.0F;
 
-    // ================== 合成着色器（带深度感知上采样） ==================
-    private static final String COMP_VERT_SRC =
-            "#version 120\n" +
-                    "void main() {\n" +
-                    "    gl_Position = vec4(gl_Vertex.xy, 0.0, 1.0);\n" +
-                    "    gl_TexCoord[0] = gl_MultiTexCoord0;\n" +
-                    "}\n";
+    private static volatile boolean volumeAvailable;
 
-    private static final String COMP_FRAG_SRC =
-            "#version 120\n" +
-                    "uniform sampler2D cloudTex;\n" +
-                    "uniform sampler2D depthTex;\n" +
-                    "uniform vec2 invTargetSize;\n" +
-                    "void main() {\n" +
-                    "    vec2 uv = gl_TexCoord[0].xy;\n" +
-                    "    float centerDepth = texture2D(depthTex, uv).r;\n" +
-                    "    \n" +
-                    "    vec4 col = vec4(0.0);\n" +
-                    "    float weightSum = 0.0;\n" +
-                    "    \n" +
-                    "    for (int y = -1; y <= 1; y += 2) {\n" +
-                    "        for (int x = -1; x <= 1; x += 2) {\n" +
-                    "            vec2 offset = vec2(float(x), float(y)) * invTargetSize;\n" +
-                    "            vec2 sampleUv = uv + offset;\n" +
-                    "            float d = texture2D(depthTex, sampleUv).r;\n" +
-                    "            // 防止全 0 导致 NaN\n" +
-                    "            float w = max(exp(-abs(d - centerDepth) * 1000.0), 0.001);\n" +
-                    "            col += texture2D(cloudTex, sampleUv) * w;\n" +
-                    "            weightSum += w;\n" +
-                    "        }\n" +
-                    "    }\n" +
-                    "    gl_FragColor = col / max(weightSum, 0.0001);\n" +
-                    "}\n";
+    private static CloudVolumeRenderer instance;
 
-    // ================== GL 资源 ==================
-    private int volumeProgram = 0;
-    private int compositeProgram = 0;
+    public static CloudVolumeRenderer getInstance() {
+        return instance;
+    }
+
+    public static boolean isVolumeAvailable() {
+        return volumeAvailable;
+    }
+
+    public static int getQualityMode() {
+        return qualityMode;
+    }
+
+    public static void setQualityMode(int mode) {
+        qualityMode = MathHelper.clamp(mode, QUALITY_AUTO, QUALITY_HIGH);
+    }
+
+    public static float getExtinction() {
+        return extinction;
+    }
+
+    public static void setExtinction(float value) {
+        extinction = MathHelper.clamp(value, 0.01F, 1.0F);
+    }
+
+    public static float getDetailAmount() {
+        return detailAmount;
+    }
+
+    public static void setDetailAmount(float value) {
+        detailAmount = MathHelper.clamp(value, 0.0F, 0.6F);
+    }
+
+    public static float getIsoLow() {
+        return isoLow;
+    }
+
+    public static float getIsoHigh() {
+        return isoHigh;
+    }
+
+    public static void setIso(float low, float high) {
+        isoLow = MathHelper.clamp(low, 0.0F, 0.9F);
+        isoHigh = MathHelper.clamp(high, isoLow + 0.005F, 1.0F);
+    }
+
+    public static float getSunSoftness() {
+        return sunSoftness;
+    }
+
+    public static void setSunSoftness(float value) {
+        sunSoftness = MathHelper.clamp(value, 0.1F, 4.0F);
+    }
+
+    // ---- GL objects ----
+    private CloudShaderProgram volumeProgram;
+    private CloudShaderProgram compositeProgram;
 
     private int depthTexture = -1;
     private int depthWidth = -1;
@@ -274,424 +138,849 @@ public class CloudVolumeRenderer {
 
     private int cloudFbo = -1;
     private int cloudColorTex = -1;
-    private int cloudFboW = -1;
-    private int cloudFboH = -1;
+    private int cloudWidth = -1;
+    private int cloudHeight = -1;
 
-    private long seedUsed = Long.MIN_VALUE;
-    private float noiseOffsetX, noiseOffsetY, noiseOffsetZ;
+    private final CloudDensityVolume volume = new CloudDensityVolume();
+    private final FloatBuffer matrixBuffer = BufferUtils.createFloatBuffer(16);
 
-    private int uDepthTex, uCameraPos, uMinBound, uMaxBound,
-            uCamForward, uCamRight, uCamUp, uSunDir,
-            uSunColor, uSkyColor, uNoiseOffset, uTanHalfFov,
-            uAspect, uNearPlane, uFarPlane, uBaseDensity, uTime,
-            uStepCount;
+    private boolean initialized;
+    private boolean failed;
+    private int lastDimension = Integer.MIN_VALUE;
 
-    private int uCompCloudTex, uCompDepthTex, uCompInvSize;
+    /** Resolution multiplier of the raymarch buffer. */
+    private float renderScale = 0.45F;
+    /** Smoothed frame time in milliseconds. */
+    private float frameMsEma = 16.7F;
+    private long lastFrameNanos;
+    private int framesSinceQualityChange;
+    private int targetW;
+    private int targetH;
+    private float lastNearPlane = 0.05F;
+    private float lastFarPlane = 256.0F;
 
-    private final ArrayDeque<ChunkPos> scanQueue = new ArrayDeque<>();
-    private final Map<ChunkPos, Integer> activeScans = new HashMap<>();
-    int scanSectionsPerTick = 2;
+    // GPU timer (ARB_timer_query). Measuring the pass itself beats guessing from
+    // the frame time, and it lets auto quality react to the cloud cost instead
+    // of to whatever else the scene is doing.
+    private boolean timerSupported;
+    private int timerQuery = -1;
+    private boolean timerActive;
+    private boolean queryInFlight;
+    private float gpuMsEma;
+    private int gpuSamples;
 
     public CloudVolumeRenderer() {
+        instance = this;
         try {
-            volumeProgram = loadProgram(VOLUME_VERT_SRC, VOLUME_FRAG_SRC);
-            compositeProgram = loadProgram(COMP_VERT_SRC, COMP_FRAG_SRC);
-
-            uDepthTex      = GL20.glGetUniformLocation(volumeProgram, "depthTex");
-            uCameraPos     = GL20.glGetUniformLocation(volumeProgram, "cameraPos");
-            uMinBound      = GL20.glGetUniformLocation(volumeProgram, "minBound");
-            uMaxBound      = GL20.glGetUniformLocation(volumeProgram, "maxBound");
-            uCamForward    = GL20.glGetUniformLocation(volumeProgram, "camForward");
-            uCamRight      = GL20.glGetUniformLocation(volumeProgram, "camRight");
-            uCamUp         = GL20.glGetUniformLocation(volumeProgram, "camUp");
-            uSunDir        = GL20.glGetUniformLocation(volumeProgram, "sunDir");
-            uSunColor      = GL20.glGetUniformLocation(volumeProgram, "sunColor");
-            uSkyColor      = GL20.glGetUniformLocation(volumeProgram, "skyColor");
-            uNoiseOffset   = GL20.glGetUniformLocation(volumeProgram, "noiseOffset");
-            uTanHalfFov    = GL20.glGetUniformLocation(volumeProgram, "tanHalfFov");
-            uAspect        = GL20.glGetUniformLocation(volumeProgram, "aspect");
-            uNearPlane     = GL20.glGetUniformLocation(volumeProgram, "nearPlane");
-            uFarPlane      = GL20.glGetUniformLocation(volumeProgram, "farPlane");
-            uBaseDensity   = GL20.glGetUniformLocation(volumeProgram, "baseDensity");
-            uTime          = GL20.glGetUniformLocation(volumeProgram, "time");
-            uStepCount     = GL20.glGetUniformLocation(volumeProgram, "stepCount");
-
-            uCompCloudTex  = GL20.glGetUniformLocation(compositeProgram, "cloudTex");
-            uCompDepthTex  = GL20.glGetUniformLocation(compositeProgram, "depthTex");
-            uCompInvSize   = GL20.glGetUniformLocation(compositeProgram, "invTargetSize");
-        } catch (Exception e) {
-            System.err.println("[CloudVolumeRenderer] Shader initialization failed!");
-            volumeProgram = 0;
-            compositeProgram = 0;
+            int max3D = GL11.glGetInteger(GL12.GL_MAX_3D_TEXTURE_SIZE);
+            String version = GL11.glGetString(GL11.GL_VERSION);
+            boolean redFormats = majorVersion(version) >= 3;
+            this.volume.init(max3D, redFormats);
+            this.initGpuTimer();
+            this.reloadShaders();
+            this.initialized = true;
+            this.syncAvailability();
+        } catch (Throwable t) {
+            System.err.println("[CloudVolumeRenderer] Initialisation failed, falling back to block rendering.");
+            t.printStackTrace();
+            this.failed = true;
+            volumeAvailable = false;
         }
     }
 
-    @SubscribeEvent
-    public void onRenderWorldLast(RenderWorldLastEvent event) {
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc.world == null || mc.player == null || volumeProgram == 0) return;
-
-        int dim = mc.world.provider.getDimension();
-        BlockPos min = CloudVolumeTracker.getMin(dim);
-        BlockPos max = CloudVolumeTracker.getMax(dim);
-        if (min == null || max == null) return;
-
-        ensureNoiseOffset(mc.world.getSeed());
-
-        int width  = mc.displayWidth;
-        int height = mc.displayHeight;
-
-        if (depthTexture == -1 || depthWidth != width || depthHeight != height) {
-            initDepthTexture(width, height);
+    private static int majorVersion(String version) {
+        if (version == null || version.isEmpty()) {
+            return 2;
         }
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GlStateManager.bindTexture(depthTexture);
-        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
-
-        Entity view = mc.getRenderViewEntity();
-        if (view == null) return;
-
-        float partialTicks = event.getPartialTicks();
-        Vec3d cameraPos = ActiveRenderInfo.getCameraPosition().add(view.getPositionVector());
-
-        float yaw   = view.prevRotationYaw   + (view.rotationYaw   - view.prevRotationYaw)   * partialTicks;
-        float pitch = view.prevRotationPitch + (view.rotationPitch - view.prevRotationPitch) * partialTicks;
-        if (mc.gameSettings.thirdPersonView == 2) {
-            yaw += 180.0F;
-            pitch = -pitch;
+        int dot = version.indexOf('.');
+        try {
+            return Integer.parseInt(dot > 0 ? version.substring(0, dot) : version);
+        } catch (NumberFormatException ignored) {
+            return 2;
         }
+    }
 
-        float yawRad   = (float) Math.toRadians(yaw);
-        float pitchRad = (float) Math.toRadians(pitch);
-        float sinYaw = MathHelper.sin(yawRad);
-        float cosYaw = MathHelper.cos(yawRad);
-        float sinPitch = MathHelper.sin(pitchRad);
-        float cosPitch = MathHelper.cos(pitchRad);
-
-        Vec3d forward = new Vec3d(-sinYaw * cosPitch, -sinPitch, cosYaw * cosPitch);
-        Vec3d right   = new Vec3d(-cosYaw, 0, -sinYaw);
-        Vec3d up      = right.crossProduct(forward);
-
-        float tanHalfFov = (float) Math.tan(Math.toRadians(mc.gameSettings.fovSetting) / 2.0);
-        float aspect     = (float) width / (float) height;
-
-        float celestial    = mc.world.getCelestialAngle(partialTicks);
-        float sunAngleRad  = celestial * (float) Math.PI * 2.0F;
-        Vec3d sunDir = new Vec3d(-MathHelper.sin(sunAngleRad), MathHelper.cos(sunAngleRad), 0.0D).normalize();
-
-        float dayFactor = mc.world.getSunBrightness(partialTicks);
-        float sunHeight = (float) sunDir.y;
-
-        Vec3d sunColor = sunHeight < 0.0F
-                ? new Vec3d(0.30F, 0.34F, 0.42F)
-                : new Vec3d(1.0F, 0.96F + 0.04F * Math.min(1.0F, sunHeight * 1.2F), 0.90F + 0.10F * Math.min(1.0F, sunHeight * 1.2F));
-        sunColor = sunColor.scale(0.55F + dayFactor * 0.75F);
-
-        Vec3d skyColor;
-        if (sunHeight < 0.2F) {
-            float t = MathHelper.clamp((sunHeight + 0.1F) / 0.3F, 0F, 1F);
-            Vec3d sunsetTint = new Vec3d(0.85, 0.45, 0.32);
-            Vec3d dayTint    = new Vec3d(0.60, 0.68, 0.75);
-            skyColor = sunsetTint.scale(1 - t).add(dayTint.scale(t));
-        } else {
-            skyColor = new Vec3d(0.60, 0.68, 0.75);
-        }
-        skyColor = skyColor.scale(0.45 + dayFactor * 0.55);
-
-        float avgDensity  = CloudVolumeTracker.getAverageDensity(dim);
-        float baseDensity = 0.5f + (avgDensity / 15.0f) * 0.4f;
-        float time        = (mc.world.getTotalWorldTime() + partialTicks) % 3600.0f;
-        float farPlane    = mc.gameSettings.renderDistanceChunks * 16.0f;
-
-        int targetW = width;
-        int targetH = height;
-        int stepCount = STEP_COUNT_FULL;
-        boolean useHalf = HALF_RESOLUTION;
-
-        if (useHalf) {
-            int halfW = Math.max(1, width  / 2);
-            int halfH = Math.max(1, height / 2);
-            if (cloudFbo == -1 || cloudFboW != halfW || cloudFboH != halfH) {
-                initCloudFbo(halfW, halfH);
+    public boolean reloadShaders() {
+        try {
+            CloudShaderProgram volumeProgram = CloudShaderProgram.create("cloud_volume",
+                    SHADER_PATH + "cloud_volume.vert", SHADER_PATH + "cloud_volume.frag");
+            CloudShaderProgram compositeProgram = CloudShaderProgram.create("cloud_composite",
+                    SHADER_PATH + "cloud_composite.vert", SHADER_PATH + "cloud_composite.frag");
+            if (this.volumeProgram != null) {
+                this.volumeProgram.dispose();
             }
-            if (cloudFbo != -1) {
-                targetW = halfW;
-                targetH = halfH;
-                stepCount = STEP_COUNT_HALF;
-            } else {
-                useHalf = false;
+            if (this.compositeProgram != null) {
+                this.compositeProgram.dispose();
             }
-        }
-
-        int prevFbo = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
-        if (useHalf) {
-            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, cloudFbo);
-            GL11.glViewport(0, 0, targetW, targetH);
-            GlStateManager.clearColor(0f, 0f, 0f, 0f);
-            GlStateManager.clear(GL11.GL_COLOR_BUFFER_BIT);
-        } else {
-            GL11.glViewport(0, 0, width, height);
-        }
-
-        renderVolumePass(cameraPos, forward, right, up, min, max, sunDir, sunColor, skyColor,
-                tanHalfFov, aspect, farPlane, baseDensity, time, stepCount);
-
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
-        GL11.glViewport(0, 0, width, height);
-        if (useHalf) {
-            compositeCloudToScreen(targetW, targetH);
+            this.volumeProgram = volumeProgram;
+            this.compositeProgram = compositeProgram;
+            this.failed = false;
+            this.syncAvailability();
+            return true;
+        } catch (IOException e) {
+            System.err.println("[CloudVolumeRenderer] Shader reload failed: " + e.getMessage());
+            this.failed = true;
+            this.syncAvailability();
+            return false;
         }
     }
 
-    private void renderVolumePass(Vec3d cameraPos, Vec3d forward, Vec3d right, Vec3d up,
-                                  BlockPos min, BlockPos max,
-                                  Vec3d sunDir, Vec3d sunColor, Vec3d skyColor,
-                                  float tanHalfFov, float aspect,
-                                  float farPlane,
-                                  float baseDensity, float time, int stepCount) {
-        GlStateManager.disableDepth();
-        GlStateManager.depthMask(false);
-        GlStateManager.enableBlend();
-        GlStateManager.blendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
-
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GlStateManager.bindTexture(depthTexture);
-
-        GL20.glUseProgram(volumeProgram);
-        GL20.glUniform1i(uDepthTex, 0);
-        GL20.glUniform3f(uCameraPos, (float) cameraPos.x, (float) cameraPos.y, (float) cameraPos.z);
-        GL20.glUniform3f(uMinBound, min.getX(), min.getY(), min.getZ());
-        GL20.glUniform3f(uMaxBound, max.getX() + 1, max.getY() + 1, max.getZ() + 1);
-        GL20.glUniform3f(uCamForward, (float) forward.x, (float) forward.y, (float) forward.z);
-        GL20.glUniform3f(uCamRight,   (float) right.x,   (float) right.y,   (float) right.z);
-        GL20.glUniform3f(uCamUp,      (float) up.x,      (float) up.y,      (float) up.z);
-        GL20.glUniform3f(uSunDir,     (float) sunDir.x,  (float) sunDir.y,  (float) sunDir.z);
-        GL20.glUniform3f(uSunColor,   (float) sunColor.x,(float) sunColor.y,(float) sunColor.z);
-        GL20.glUniform3f(uSkyColor,   (float) skyColor.x,(float) skyColor.y,(float) skyColor.z);
-        GL20.glUniform3f(uNoiseOffset, noiseOffsetX, noiseOffsetY, noiseOffsetZ);
-        GL20.glUniform1f(uTanHalfFov, tanHalfFov);
-        GL20.glUniform1f(uAspect,     aspect);
-        GL20.glUniform1f(uNearPlane, CloudVolumeRenderer.NEAR_PLANE);
-        GL20.glUniform1f(uFarPlane,   farPlane);
-        GL20.glUniform1f(uBaseDensity, baseDensity);
-        GL20.glUniform1f(uTime,       time);
-        GL20.glUniform1i(uStepCount,  stepCount);
-
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        GL11.glPushMatrix();
-        GL11.glLoadIdentity();
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        GL11.glPushMatrix();
-        GL11.glLoadIdentity();
-
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glVertex2f(-1.0f, -1.0f);
-        GL11.glVertex2f( 1.0f, -1.0f);
-        GL11.glVertex2f( 1.0f,  1.0f);
-        GL11.glVertex2f(-1.0f,  1.0f);
-        GL11.glEnd();
-
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        GL11.glPopMatrix();
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        GL11.glPopMatrix();
-        GL20.glUseProgram(0);
-    }
-
-    private void compositeCloudToScreen(int cloudW, int cloudH) {
-        GlStateManager.enableBlend();
-        GlStateManager.blendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
-        GlStateManager.disableDepth();
-        GlStateManager.depthMask(false);
-
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-        GlStateManager.bindTexture(cloudColorTex);
-        GL13.glActiveTexture(GL13.GL_TEXTURE1);
-        GlStateManager.bindTexture(depthTexture);
-
-        GL20.glUseProgram(compositeProgram);
-        GL20.glUniform1i(uCompCloudTex, 0);
-        GL20.glUniform1i(uCompDepthTex, 1);
-        GL20.glUniform2f(uCompInvSize, 1.0f / cloudW, 1.0f / cloudH);
-
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        GL11.glPushMatrix();
-        GL11.glLoadIdentity();
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        GL11.glPushMatrix();
-        GL11.glLoadIdentity();
-
-        GL11.glBegin(GL11.GL_QUADS);
-        GL11.glTexCoord2f(0f, 0f); GL11.glVertex2f(-1f, -1f);
-        GL11.glTexCoord2f(1f, 0f); GL11.glVertex2f( 1f, -1f);
-        GL11.glTexCoord2f(1f, 1f); GL11.glVertex2f( 1f,  1f);
-        GL11.glTexCoord2f(0f, 1f); GL11.glVertex2f(-1f,  1f);
-        GL11.glEnd();
-
-        GL11.glMatrixMode(GL11.GL_PROJECTION);
-        GL11.glPopMatrix();
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        GL11.glPopMatrix();
-
-        GL20.glUseProgram(0);
-
-        // 恢复纹理单元状态
-        GL13.glActiveTexture(GL13.GL_TEXTURE1);
-        GlStateManager.bindTexture(0);
-        GL13.glActiveTexture(GL13.GL_TEXTURE0);
-
-        GlStateManager.disableBlend();
-        GlStateManager.depthMask(true);
-        GlStateManager.enableDepth();
-    }
-
-    private void initDepthTexture(int width, int height) {
-        if (depthTexture == -1) {
-            depthTexture = GL11.glGenTextures();
-        }
-        GlStateManager.bindTexture(depthTexture);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
-        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL14.GL_DEPTH_COMPONENT24, width, height, 0,
-                GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, (ByteBuffer) null);
-        depthWidth  = width;
-        depthHeight = height;
-    }
-
-    private void initCloudFbo(int w, int h) {
-        if (cloudFbo == -1) {
-            cloudFbo      = GL30.glGenFramebuffers();
-            cloudColorTex = GL11.glGenTextures();
-        }
-
-        GlStateManager.bindTexture(cloudColorTex);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
-        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, w, h, 0,
-                GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (ByteBuffer) null);
-
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, cloudFbo);
-        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
-                GL11.GL_TEXTURE_2D, cloudColorTex, 0);
-
-        int status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
-        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, 0);
-
-        if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
-            System.err.println("[CloudVolumeRenderer] FBO Creation failed! Status: " + status);
-            if (cloudFbo != -1) { GL30.glDeleteFramebuffers(cloudFbo); cloudFbo = -1; }
-            if (cloudColorTex != -1) { GL11.glDeleteTextures(cloudColorTex); cloudColorTex = -1; }
+    /**
+     * Keeps the block fallback in step with the volume path. When the flag flips
+     * the chunk meshes have to be rebuilt, because {@code shouldSideBeRendered}
+     * decided whether to emit cloud quads when they were baked.
+     */
+    private void syncAvailability() {
+        boolean available = this.initialized && !this.failed && this.volume.isSupported();
+        if (available == volumeAvailable) {
             return;
         }
-        cloudFboW = w;
-        cloudFboH = h;
-    }
-
-    private int loadProgram(String vertSrc, String fragSrc) {
-        int vs = compileShader(GL20.GL_VERTEX_SHADER, vertSrc);
-        int fs = compileShader(GL20.GL_FRAGMENT_SHADER, fragSrc);
-        int program = GL20.glCreateProgram();
-        GL20.glAttachShader(program, vs);
-        GL20.glAttachShader(program, fs);
-        GL20.glLinkProgram(program);
-        if (GL20.glGetProgrami(program, GL20.GL_LINK_STATUS) == GL11.GL_FALSE) {
-            String log = GL20.glGetProgramInfoLog(program, 4096);
-            throw new RuntimeException("Cloud shader link error: " + log);
+        volumeAvailable = available;
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc != null && mc.renderGlobal != null) {
+            mc.renderGlobal.loadRenderers();
         }
-        GL20.glDeleteShader(vs);
-        GL20.glDeleteShader(fs);
-        return program;
     }
 
-    private int compileShader(int type, String source) {
-        int shader = GL20.glCreateShader(type);
-        GL20.glShaderSource(shader, source);
-        GL20.glCompileShader(shader);
-        if (GL20.glGetShaderi(shader, GL20.GL_COMPILE_STATUS) == GL11.GL_FALSE) {
-            String log = GL20.glGetShaderInfoLog(shader, 4096);
-            throw new RuntimeException("Cloud shader compile error: " + log);
+    public boolean isFailed() {
+        return this.failed;
+    }
+
+    public CloudDensityVolume getVolume() {
+        return this.volume;
+    }
+
+    public float getRenderScale() {
+        return this.renderScale;
+    }
+
+    public float getFrameMsEma() {
+        return this.frameMsEma;
+    }
+
+    /** GPU milliseconds spent in the cloud passes, as measured by a GL timer. */
+    public float getGpuMsEma() {
+        return this.gpuMsEma;
+    }
+
+    public boolean hasGpuTimer() {
+        return this.timerSupported && this.gpuSamples > 0;
+    }
+
+    private void initGpuTimer() {
+        try {
+            this.timerSupported = org.lwjgl.opengl.GLContext.getCapabilities().GL_ARB_timer_query;
+            if (this.timerSupported) {
+                this.timerQuery = GL15.glGenQueries();
+            }
+        } catch (Throwable t) {
+            this.timerSupported = false;
+            this.timerQuery = -1;
         }
-        return shader;
     }
 
-    private void ensureNoiseOffset(long seed) {
-        if (seedUsed == seed) return;
-        seedUsed = seed;
-        Random random = new Random(seed);
-        noiseOffsetX = random.nextFloat() * 10000;
-        noiseOffsetY = random.nextFloat() * 10000;
-        noiseOffsetZ = random.nextFloat() * 10000;
+    private void beginCloudTimer() {
+        if (!this.timerSupported || this.timerQuery == -1) {
+            return;
+        }
+        if (this.queryInFlight) {
+            long available = ARBTimerQuery.glGetQueryObjecti64(this.timerQuery, QUERY_RESULT_AVAILABLE);
+            if (available == 0L) {
+                return;
+            }
+            long nanos = ARBTimerQuery.glGetQueryObjecti64(this.timerQuery, QUERY_RESULT);
+            this.queryInFlight = false;
+            if (nanos > 0L) {
+                float millis = nanos / 1_000_000.0F;
+                if (this.gpuSamples == 0) {
+                    this.gpuMsEma = millis;
+                } else {
+                    this.gpuMsEma += (millis - this.gpuMsEma) * 0.1F;
+                }
+                this.gpuSamples++;
+            }
+        }
+        GL15.glBeginQuery(ARBTimerQuery.GL_TIME_ELAPSED, this.timerQuery);
+        this.timerActive = true;
+    }
+
+    private void endCloudTimer() {
+        if (!this.timerActive) {
+            return;
+        }
+        this.timerActive = false;
+        GL15.glEndQuery(ARBTimerQuery.GL_TIME_ELAPSED);
+        this.queryInFlight = true;
+    }
+
+    private static final int QUERY_RESULT = 0x8866;
+    private static final int QUERY_RESULT_AVAILABLE = 0x8867;
+
+    public String describe() {
+        CloudDensityVolume volume = this.volume;
+        return String.format(Locale.ROOT,
+                "scale=%.2f steps=%d target=%dx%d frame=%.1fms gpu=%.2fms vol=%dx%dx%d cell=%d mode=%s",
+                this.renderScale, stepCount(), this.targetW, this.targetH,
+                this.frameMsEma, this.hasGpuTimer() ? this.gpuMsEma : -1.0F,
+                volume.getDimX(), volume.getDimY(), volume.getDimZ(), volume.getCellSize(),
+                qualityName(qualityMode));
+    }
+
+    public static String qualityName(int mode) {
+        switch (mode) {
+            case QUALITY_LOW:
+                return "low";
+            case QUALITY_MEDIUM:
+                return "medium";
+            case QUALITY_HIGH:
+                return "high";
+            default:
+                return "auto";
+        }
+    }
+
+    private int stepCount() {
+        // Step count is cheap in the sparse case (a texel fetch replaced the fBm
+        // evaluation and transmittance terminates the ray early) but it is the
+        // dominant cost when the screen is filled with cloud, so the presets stay
+        // moderate; the stochastic march and the depth aware upsample hide the
+        // quantisation.
+        if (this.renderScale >= 0.9F) {
+            return 56;
+        }
+        if (this.renderScale >= 0.38F) {
+            return 44;
+        }
+        if (this.renderScale >= 0.32F) {
+            return 36;
+        }
+        return 28;
     }
 
     @SubscribeEvent
-    public void onChunkLoad(ChunkEvent.Load event) {
-        World world = event.getWorld();
-        if (!world.isRemote) return;
-        ChunkPos cp = event.getChunk().getPos();
-        if (!scanQueue.contains(cp) && !activeScans.containsKey(cp)) {
-            scanQueue.add(cp);
+    public void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) {
+            return;
         }
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.world == null) {
+            return;
+        }
+        CloudVolumeTracker.processPendingScans(mc.world, SCAN_BUDGET);
     }
 
     @SubscribeEvent
     public void onChunkUnload(ChunkEvent.Unload event) {
         World world = event.getWorld();
-        if (!world.isRemote) return;
-        ChunkPos cp = event.getChunk().getPos();
-        scanQueue.remove(cp);
-        activeScans.remove(cp);
-        CloudVolumeTracker.removeChunk(world.provider.getDimension(), cp);
+        if (world == null || !world.isRemote) {
+            return;
+        }
+        CloudVolumeTracker.removeChunk(world.provider.getDimension(), event.getChunk().getPos());
     }
 
     @SubscribeEvent
     public void onWorldUnload(WorldEvent.Unload event) {
-        if (event.getWorld().isRemote) {
-            CloudVolumeTracker.clearDimension(event.getWorld().provider.getDimension());
-            scanQueue.clear();
-            activeScans.clear();
+        World world = event.getWorld();
+        if (world == null || !world.isRemote) {
+            return;
         }
+        CloudVolumeTracker.clearAll();
+        this.volume.release();
+        this.lastDimension = Integer.MIN_VALUE;
     }
 
     @SubscribeEvent
-    public void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.START) return;
-        processPendingScans();
-    }
-
-    private void processPendingScans() {
+    public void onRenderWorldLast(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.world == null) {
-            scanQueue.clear();
-            activeScans.clear();
+        if (this.failed || !this.initialized || mc.world == null || mc.player == null) {
             return;
         }
-        while (!scanQueue.isEmpty()) {
-            ChunkPos cp = scanQueue.poll();
-            activeScans.put(cp, 0);
+        World world = mc.world;
+        Entity view = mc.getRenderViewEntity();
+        if (view == null) {
+            return;
         }
-        Iterator<Map.Entry<ChunkPos, Integer>> it = activeScans.entrySet().iterator();
-        int budget = scanSectionsPerTick;
-        while (it.hasNext() && budget > 0) {
-            Map.Entry<ChunkPos, Integer> entry = it.next();
-            ChunkPos cp = entry.getKey();
-            int section = entry.getValue();
-            Chunk chunk = mc.world.getChunkProvider().getLoadedChunk(cp.x, cp.z);
-            if (chunk == null) {
-                it.remove();
-                continue;
-            }
-            CloudVolumeTracker.scanChunkSection(mc.world, chunk, section);
-            budget--;
-            int next = section + 1;
-            if (next >= 16) {
-                it.remove();
+        float partialTicks = event.getPartialTicks();
+        int dimension = world.provider.getDimension();
+        if (dimension != this.lastDimension) {
+            this.lastDimension = dimension;
+            this.volume.release();
+        }
+
+        this.updateFrameTiming(event);
+        this.volume.update(dimension, REBUILD_BUDGET);
+        if (!this.volume.isActive()) {
+            return;
+        }
+
+        Vec3d cameraPos = ActiveRenderInfo.projectViewFromEntity(view, partialTicks);
+        CameraBasis basis = this.readCameraBasis(mc, view, partialTicks);
+        this.lastNearPlane = basis.nearPlane;
+        this.lastFarPlane = basis.farPlane;
+
+        float cellSize = this.volume.getCellSize();
+        Vec3d volMin = new Vec3d(this.volume.getOriginX(), this.volume.getOriginY(), this.volume.getOriginZ());
+        Vec3d volMax = new Vec3d(
+                volMin.x + this.volume.getDimX() * (double) cellSize,
+                volMin.y + this.volume.getDimY() * (double) cellSize,
+                volMin.z + this.volume.getDimZ() * (double) cellSize);
+
+        if (!this.isPotentiallyVisible(cameraPos, volMin, volMax, basis)) {
+            return;
+        }
+
+        int width = mc.displayWidth;
+        int height = mc.displayHeight;
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+
+        int[] scissor = this.computeScissor(cameraPos, volMin, volMax, basis, width, height);
+
+        this.resolveScale();
+        this.targetW = Math.max(1, (int) (width * this.renderScale));
+        this.targetH = Math.max(1, (int) (height * this.renderScale));
+
+        boolean useFbo = this.renderScale < 0.98F;
+        if (useFbo && !this.ensureCloudTarget(this.targetW, this.targetH)) {
+            useFbo = false;
+            this.targetW = width;
+            this.targetH = height;
+        }
+        float scissorScale = (float) this.targetW / (float) width;
+
+        if (this.depthTexture == -1 || this.depthWidth != width || this.depthHeight != height) {
+            this.initDepthTexture(width, height);
+        }
+
+        int prevFbo = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        GlStateManager.bindTexture(this.depthTexture);
+        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+
+        boolean scissorWasOn = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        try {
+            if (useFbo) {
+                GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.cloudFbo);
+                GL11.glViewport(0, 0, this.targetW, this.targetH);
+                GL11.glDisable(GL11.GL_SCISSOR_TEST);
+                GlStateManager.clearColor(0.0F, 0.0F, 0.0F, 0.0F);
+                GlStateManager.clear(GL11.GL_COLOR_BUFFER_BIT);
             } else {
-                entry.setValue(next);
+                GL11.glViewport(0, 0, width, height);
+            }
+
+            if (scissor != null) {
+                int sx = (int) (scissor[0] * scissorScale);
+                int sy = (int) (scissor[1] * scissorScale);
+                int sw = Math.max(1, (int) ((scissor[2] - scissor[0]) * scissorScale));
+                int sh = Math.max(1, (int) ((scissor[3] - scissor[1]) * scissorScale));
+                GL11.glEnable(GL11.GL_SCISSOR_TEST);
+                GL11.glScissor(sx, sy, sw, sh);
+            }
+
+            this.beginCloudTimer();
+            this.renderVolumePass(cameraPos, basis, volMin, volMax, world, view, partialTicks);
+
+            GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            if (useFbo) {
+                GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
+                GL11.glViewport(0, 0, width, height);
+                // Only the projected volume can contain cloud, so the composite
+                // never has to touch the rest of the screen.
+                if (scissor != null) {
+                    GL11.glEnable(GL11.GL_SCISSOR_TEST);
+                    GL11.glScissor(scissor[0], scissor[1], scissor[2] - scissor[0], scissor[3] - scissor[1]);
+                }
+                this.compositeToScreen(this.targetW, this.targetH);
+                GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            }
+        } finally {
+            this.endCloudTimer();
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
+            GL11.glViewport(0, 0, width, height);
+            GL11.glScissor(0, 0, width, height);
+            if (scissorWasOn) {
+                GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            } else {
+                GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            }
+            GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+            GlStateManager.bindTexture(0);
+            GlStateManager.depthMask(true);
+            GlStateManager.enableDepth();
+            GlStateManager.disableBlend();
+            GlStateManager.enableCull();
+            GlStateManager.enableAlpha();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // quality
+    // ------------------------------------------------------------------
+
+    private void updateFrameTiming(RenderWorldLastEvent event) {
+        long now = System.nanoTime();
+        if (this.lastFrameNanos != 0L) {
+            float deltaMs = (now - this.lastFrameNanos) / 1_000_000.0F;
+            if (deltaMs > 0.0F && deltaMs < 250.0F) {
+                this.frameMsEma += (deltaMs - this.frameMsEma) * 0.05F;
             }
         }
+        this.lastFrameNanos = now;
+    }
+
+    private void resolveScale() {
+        switch (qualityMode) {
+            case QUALITY_LOW:
+                this.renderScale = 0.32F;
+                break;
+            case QUALITY_MEDIUM:
+                this.renderScale = 0.45F;
+                break;
+            case QUALITY_HIGH:
+                this.renderScale = 1.0F;
+                break;
+            default:
+                this.adaptQuality();
+                break;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // events
+    // ------------------------------------------------------------------
+
+    /**
+     * Moves the render scale towards a comfortable frame time. Only reacts to
+     * large deviations so that a vsync locked 60 fps never oscillates.
+     *
+     * <p>The cloud pass is the only thing this can trade against, so the targets
+     * are deliberately conservative: on the reference Intel UHD a cloudy full
+     * screen at 0.5 scale costs several milliseconds, which is the difference
+     * between 110 and 60 fps in a scene that is otherwise GPU bound.</p>
+     */
+    private void adaptQuality() {
+        this.framesSinceQualityChange++;
+        if (this.framesSinceQualityChange < 30) {
+            return;
+        }
+        if (this.hasGpuTimer() && this.gpuSamples > 40) {
+            if (this.gpuMsEma > 2.2F && this.renderScale > MIN_SCALE) {
+                this.renderScale = Math.max(MIN_SCALE, this.renderScale - 0.06F);
+                this.framesSinceQualityChange = 0;
+            } else if (this.gpuMsEma < 1.0F && this.renderScale < MAX_SCALE) {
+                this.renderScale = Math.min(MAX_SCALE, this.renderScale + 0.04F);
+                this.framesSinceQualityChange = 0;
+            }
+            return;
+        }
+        if (this.frameMsEma > 19.0F && this.renderScale > MIN_SCALE) {
+            this.renderScale = Math.max(MIN_SCALE, this.renderScale - 0.06F);
+            this.framesSinceQualityChange = 0;
+        } else if (this.frameMsEma < 11.5F && this.renderScale < MAX_SCALE) {
+            this.renderScale = Math.min(MAX_SCALE, this.renderScale + 0.04F);
+            this.framesSinceQualityChange = 0;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // camera and volume helpers
+    // ------------------------------------------------------------------
+
+    private static final class CameraBasis {
+        Vec3d forward;
+        Vec3d right;
+        Vec3d up;
+        float tanHalfFov;
+        float aspect;
+        float nearPlane;
+        float farPlane;
+    }
+
+    private CameraBasis readCameraBasis(Minecraft mc, Entity view, float partialTicks) {
+        CameraBasis basis = new CameraBasis();
+
+        Vec3d forward = null;
+        Vec3d up = null;
+        Vec3d right = null;
+        try {
+            // The modelview matrix is a WORLD -> EYE transform (MC draws world
+            // space vertices with it), so the camera axes expressed in world
+            // space are its *rows*: row0 = right, row1 = up, row2 = backward.
+            // glGetFloat returns column major, hence indices 0/4/8, 1/5/9, 2/6/10.
+            // Reading the columns instead (the transpose) mirrors the view
+            // direction, which makes the cloud region swing the wrong way when
+            // the camera turns.
+            this.matrixBuffer.clear();
+            GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, this.matrixBuffer);
+            Vec3d candidateRight = new Vec3d(this.matrixBuffer.get(0), this.matrixBuffer.get(4), this.matrixBuffer.get(8));
+            Vec3d candidateUp = new Vec3d(this.matrixBuffer.get(1), this.matrixBuffer.get(5), this.matrixBuffer.get(9));
+            Vec3d candidateForward = new Vec3d(-this.matrixBuffer.get(2), -this.matrixBuffer.get(6), -this.matrixBuffer.get(10));
+            if (candidateForward.lengthVector() > 0.5D && candidateUp.lengthVector() > 0.5D
+                    && Math.abs(candidateForward.normalize().dotProduct(candidateUp.normalize())) < 0.5D) {
+                forward = candidateForward.normalize();
+                up = candidateUp.normalize();
+                right = candidateRight.normalize();
+            }
+        } catch (Throwable ignored) {
+            // fall through to the yaw/pitch reconstruction
+        }
+
+        if (forward == null) {
+            float yaw = view.prevRotationYaw + (view.rotationYaw - view.prevRotationYaw) * partialTicks;
+            float pitch = view.prevRotationPitch + (view.rotationPitch - view.prevRotationPitch) * partialTicks;
+            if (mc.gameSettings.thirdPersonView == 2) {
+                yaw += 180.0F;
+                pitch = -pitch;
+            }
+            float yawRad = (float) Math.toRadians(yaw);
+            float pitchRad = (float) Math.toRadians(pitch);
+            float sinYaw = MathHelper.sin(yawRad);
+            float cosYaw = MathHelper.cos(yawRad);
+            float sinPitch = MathHelper.sin(pitchRad);
+            float cosPitch = MathHelper.cos(pitchRad);
+            forward = new Vec3d(-sinYaw * cosPitch, -sinPitch, cosYaw * cosPitch).normalize();
+            right = new Vec3d(-cosYaw, 0.0D, -sinYaw).normalize();
+            up = right.crossProduct(forward).normalize();
+        }
+
+        float nearPlane = 0.05F;
+        float farPlane = Math.max(64.0F, mc.gameSettings.renderDistanceChunks * 16.0F * MathHelper.SQRT_2);
+        float tanHalfFov = (float) Math.tan(Math.toRadians(mc.gameSettings.fovSetting) * 0.5D);
+        float aspect = (float) mc.displayWidth / (float) Math.max(1, mc.displayHeight);
+
+        try {
+            this.matrixBuffer.clear();
+            GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, this.matrixBuffer);
+            float p0 = this.matrixBuffer.get(0);
+            float p5 = this.matrixBuffer.get(5);
+            float p10 = this.matrixBuffer.get(10);
+            float p11 = this.matrixBuffer.get(11);
+            float p14 = this.matrixBuffer.get(14);
+            if (p11 < -0.5F && p5 > 0.2F && Math.abs(p0) > 1.0E-4F) {
+                tanHalfFov = 1.0F / p5;
+                aspect = p5 / p0;
+                float candidateNear = p14 / (p10 - 1.0F);
+                float candidateFar = p14 / (p10 + 1.0F);
+                if (candidateNear > 0.001F && candidateNear < 8.0F
+                        && candidateFar > candidateNear * 4.0F && candidateFar < 65536.0F) {
+                    nearPlane = candidateNear;
+                    farPlane = candidateFar;
+                }
+            }
+        } catch (Throwable ignored) {
+            // keep the settings derived defaults
+        }
+
+        basis.forward = forward;
+        basis.right = right;
+        basis.up = up;
+        basis.tanHalfFov = tanHalfFov;
+        basis.aspect = aspect;
+        basis.nearPlane = nearPlane;
+        basis.farPlane = farPlane;
+        return basis;
+    }
+
+    private boolean isPotentiallyVisible(Vec3d cameraPos, Vec3d volMin, Vec3d volMax, CameraBasis basis) {
+        Vec3d center = volMin.add(volMax).scale(0.5D);
+        Vec3d delta = center.subtract(cameraPos);
+        double radius = volMax.subtract(volMin).lengthVector() * 0.5D;
+        double distance = delta.lengthVector();
+        if (distance > MAX_VOLUME_DISTANCE + radius) {
+            return false;
+        }
+        return delta.dotProduct(basis.forward) + radius > 0.0D;
+    }
+
+    /**
+     * Screen rectangle (in pixels, origin bottom left) that the volume can cover.
+     * Returns {@code null} for "full screen".
+     */
+    private int[] computeScissor(Vec3d cameraPos, Vec3d volMin, Vec3d volMax, CameraBasis basis,
+                                 int width, int height) {
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE;
+        double maxY = -Double.MAX_VALUE;
+        for (int corner = 0; corner < 8; corner++) {
+            double x = (corner & 1) == 0 ? volMin.x : volMax.x;
+            double y = (corner & 2) == 0 ? volMin.y : volMax.y;
+            double z = (corner & 4) == 0 ? volMin.z : volMax.z;
+            Vec3d rel = new Vec3d(x, y, z).subtract(cameraPos);
+            double viewZ = rel.dotProduct(basis.forward);
+            if (viewZ <= basis.nearPlane) {
+                return null;
+            }
+            double ndcX = rel.dotProduct(basis.right) / (viewZ * basis.tanHalfFov * basis.aspect);
+            double ndcY = rel.dotProduct(basis.up) / (viewZ * basis.tanHalfFov);
+            double px = (ndcX * 0.5D + 0.5D) * width;
+            double py = (ndcY * 0.5D + 0.5D) * height;
+            minX = Math.min(minX, px);
+            minY = Math.min(minY, py);
+            maxX = Math.max(maxX, px);
+            maxY = Math.max(maxY, py);
+        }
+        // A little margin for the depth discontinuity filtering in the composite.
+        int x0 = (int) Math.floor(minX) - 8;
+        int y0 = (int) Math.floor(minY) - 8;
+        int x1 = (int) Math.ceil(maxX) + 8;
+        int y1 = (int) Math.ceil(maxY) + 8;
+        x0 = Math.max(x0, 0);
+        y0 = Math.max(y0, 0);
+        x1 = Math.min(x1, width);
+        y1 = Math.min(y1, height);
+        if (x1 <= x0 || y1 <= y0) {
+            return null;
+        }
+        if (x0 == 0 && y0 == 0 && x1 == width && y1 == height) {
+            return null;
+        }
+        return new int[]{x0, y0, x1, y1};
+    }
+
+    // ------------------------------------------------------------------
+    // passes
+    // ------------------------------------------------------------------
+
+    private void renderVolumePass(Vec3d cameraPos, CameraBasis basis, Vec3d volMin, Vec3d volMax,
+                                  World world, Entity view, float partialTicks) {
+        CloudShaderProgram program = this.volumeProgram;
+        program.use();
+
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        GlStateManager.bindTexture(this.depthTexture);
+        program.set1i("depthTex", 0);
+
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE1);
+        GL11.glBindTexture(GL12.GL_TEXTURE_3D, this.volume.getFineTexture());
+        program.set1i("densityTex", 1);
+
+        float celestial = world.getCelestialAngle(partialTicks);
+        float sunAngle = celestial * (float) Math.PI * 2.0F;
+        Vec3d sunDir = new Vec3d(-MathHelper.sin(sunAngle), MathHelper.cos(sunAngle), 0.0D).normalize();
+        float sunBrightness = world.getSunBrightness(partialTicks);
+        float sunHeight = Math.max(0.0F, (float) sunDir.y);
+        Vec3d sunColor;
+        if (sunDir.y <= 0.0D) {
+            sunColor = new Vec3d(0.0D, 0.0D, 0.0D);
+        } else {
+            Vec3d warm = new Vec3d(1.0D, 0.58D + 0.40D * sunHeight, 0.34D + 0.60D * sunHeight);
+            sunColor = warm.scale(0.30D + 1.10D * sunBrightness);
+        }
+
+        Vec3d skyColor = world.getSkyColor(view, partialTicks);
+        Vec3d fogColor = world.getFogColor(partialTicks);
+        Vec3d cloudTint = world.getCloudColour(partialTicks);
+
+        program.set3f("cameraPos", cameraPos.x, cameraPos.y, cameraPos.z);
+        program.set3f("camForward", basis.forward.x, basis.forward.y, basis.forward.z);
+        program.set3f("camRight", basis.right.x, basis.right.y, basis.right.z);
+        program.set3f("camUp", basis.up.x, basis.up.y, basis.up.z);
+        program.set3f("sunDir", sunDir.x, sunDir.y, sunDir.z);
+        program.set3f("sunColor", sunColor.x, sunColor.y, sunColor.z);
+        program.set3f("skyZenith", skyColor.x, skyColor.y, skyColor.z);
+        program.set3f("fogColor", fogColor.x, fogColor.y, fogColor.z);
+        program.set3f("cloudTint", cloudTint.x, cloudTint.y, cloudTint.z);
+        program.set3f("volOrigin", volMin.x, volMin.y, volMin.z);
+        program.set3f("volSize", volMax.x - volMin.x, volMax.y - volMin.y, volMax.z - volMin.z);
+        program.set1f("tanHalfFov", basis.tanHalfFov);
+        program.set1f("aspect", basis.aspect);
+        program.set1f("nearPlane", basis.nearPlane);
+        program.set1f("farPlane", basis.farPlane);
+        program.set1f("fogStart", basis.farPlane * 0.72F);
+        program.set1f("fogEnd", basis.farPlane * 0.99F);
+        program.set1f("extinction", extinction);
+        program.set1f("detailAmount", detailAmount);
+        program.set1f("detailScale", detailScale);
+        program.set1f("isoLow", isoLow);
+        program.set1f("isoHigh", isoHigh);
+        program.set1f("sunSoftness", sunSoftness);
+        // Drift in seconds. Wrapped to a bounded window: the value feeds a float
+        // shader uniform, and an unbounded total world time would lose the
+        // fractional drift to float precision after a long lived world (the
+        // noise coordinate would advance in visible steps instead of smoothly).
+        float time = ((world.getTotalWorldTime() % 260_000L) + partialTicks) * 0.05F;
+        program.set1f("time", time);
+        program.set1i("stepCount", stepCount());
+
+        GlStateManager.disableDepth();
+        GlStateManager.depthMask(false);
+        // The shader writes premultiplied colour, which is also what the
+        // half resolution buffer expects (it is cleared to zero, so blending
+        // there is a no-op and one code path covers both targets).
+        GlStateManager.enableBlend();
+        GlStateManager.blendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GlStateManager.disableCull();
+        GlStateManager.disableAlpha();
+
+        this.drawFullScreenQuad(false);
+
+        GlStateManager.enableAlpha();
+        GlStateManager.enableCull();
+        CloudShaderProgram.stop();
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE1);
+        GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+    }
+
+    private void compositeToScreen(int width, int height) {
+        CloudShaderProgram program = this.compositeProgram;
+        program.use();
+
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        GlStateManager.bindTexture(this.cloudColorTex);
+        program.set1i("cloudTex", 0);
+        program.set2f("cloudTexel", 1.0F / width, 1.0F / height);
+
+        GlStateManager.enableBlend();
+        GlStateManager.blendFunc(GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GlStateManager.disableDepth();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableCull();
+        // Vanilla keeps GL_ALPHA_TEST enabled with GL_GREATER/0.1 here; that
+        // would cut off exactly the soft, partially transparent cloud edge this
+        // pass exists to produce.
+        GlStateManager.disableAlpha();
+
+        this.drawFullScreenQuad(true);
+
+        GlStateManager.enableAlpha();
+        CloudShaderProgram.stop();
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+    }
+
+    private void drawFullScreenQuad(boolean textured) {
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPushMatrix();
+        GL11.glLoadIdentity();
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glPushMatrix();
+        GL11.glLoadIdentity();
+
+        GL11.glBegin(GL11.GL_QUADS);
+        if (textured) {
+            GL11.glTexCoord2f(0.0F, 0.0F);
+        }
+        GL11.glVertex2f(-1.0F, -1.0F);
+        if (textured) {
+            GL11.glTexCoord2f(1.0F, 0.0F);
+        }
+        GL11.glVertex2f(1.0F, -1.0F);
+        if (textured) {
+            GL11.glTexCoord2f(1.0F, 1.0F);
+        }
+        GL11.glVertex2f(1.0F, 1.0F);
+        if (textured) {
+            GL11.glTexCoord2f(0.0F, 1.0F);
+        }
+        GL11.glVertex2f(-1.0F, 1.0F);
+        GL11.glEnd();
+
+        GL11.glMatrixMode(GL11.GL_PROJECTION);
+        GL11.glPopMatrix();
+        GL11.glMatrixMode(GL11.GL_MODELVIEW);
+        GL11.glPopMatrix();
+    }
+
+    // ------------------------------------------------------------------
+    // GL targets
+    // ------------------------------------------------------------------
+
+    private void initDepthTexture(int width, int height) {
+        if (this.depthTexture == -1) {
+            this.depthTexture = GL11.glGenTextures();
+        }
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        GlStateManager.bindTexture(this.depthTexture);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL14.GL_DEPTH_COMPONENT24, width, height, 0,
+                GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, (java.nio.ByteBuffer) null);
+        this.depthWidth = width;
+        this.depthHeight = height;
+    }
+
+    private boolean ensureCloudTarget(int width, int height) {
+        if (this.cloudFbo != -1 && this.cloudWidth == width && this.cloudHeight == height) {
+            return true;
+        }
+        if (this.cloudFbo == -1) {
+            this.cloudFbo = GL30.glGenFramebuffers();
+            this.cloudColorTex = GL11.glGenTextures();
+        }
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        GlStateManager.bindTexture(this.cloudColorTex);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0,
+                GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (java.nio.ByteBuffer) null);
+
+        int previous = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.cloudFbo);
+        GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0,
+                GL11.GL_TEXTURE_2D, this.cloudColorTex, 0);
+        int status = GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER);
+        GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previous);
+        if (status != GL30.GL_FRAMEBUFFER_COMPLETE) {
+            System.err.println("[CloudVolumeRenderer] cloud framebuffer incomplete: " + status);
+            if (this.cloudFbo != -1) {
+                GL30.glDeleteFramebuffers(this.cloudFbo);
+                this.cloudFbo = -1;
+            }
+            if (this.cloudColorTex != -1) {
+                GL11.glDeleteTextures(this.cloudColorTex);
+                this.cloudColorTex = -1;
+            }
+            this.cloudWidth = -1;
+            this.cloudHeight = -1;
+            return false;
+        }
+        this.cloudWidth = width;
+        this.cloudHeight = height;
+        return true;
+    }
+
+    public void dispose() {
+        this.volume.release();
+        if (this.depthTexture != -1) {
+            GL11.glDeleteTextures(this.depthTexture);
+            this.depthTexture = -1;
+        }
+        if (this.cloudColorTex != -1) {
+            GL11.glDeleteTextures(this.cloudColorTex);
+            this.cloudColorTex = -1;
+        }
+        if (this.cloudFbo != -1) {
+            GL30.glDeleteFramebuffers(this.cloudFbo);
+            this.cloudFbo = -1;
+        }
+        if (this.volumeProgram != null) {
+            this.volumeProgram.dispose();
+        }
+        if (this.compositeProgram != null) {
+            this.compositeProgram.dispose();
+        }
+    }
+
+    /** Called by {@code /cloud rescan}. */
+    public static void requestRescan(World world) {
+        if (world == null) {
+            return;
+        }
+        Minecraft mc = Minecraft.getMinecraft();
+        int chunkX = 0;
+        int chunkZ = 0;
+        if (mc.player != null) {
+            chunkX = MathHelper.floor(mc.player.posX) >> 4;
+            chunkZ = MathHelper.floor(mc.player.posZ) >> 4;
+        }
+        int radius = Math.max(4, mc.gameSettings.renderDistanceChunks + 2);
+        CloudVolumeTracker.requestRescan(world, world.provider.getDimension(), chunkX, chunkZ, radius);
     }
 }
