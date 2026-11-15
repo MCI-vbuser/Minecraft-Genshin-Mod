@@ -15,7 +15,8 @@
     "MixinNetworkManager",
     "MixinPacketBuffer",
     "MixinPlayerChunkMapEntry",
-    "MixinWorld"
+    "MixinWorld",
+    "PlayerChunkMapEntryAccessor"
   ],
   "client": [
     "MixinChunkCache",

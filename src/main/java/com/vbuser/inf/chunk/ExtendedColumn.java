@@ -68,6 +68,20 @@ public class ExtendedColumn {
     }
 
     /**
+     * Drop every extended block and every light value of this column.
+     *
+     * <p>Only the client uses this, as the first step of a whole-chunk resync:
+     * the server is about to send the complete new contents, and anything that
+     * is not re-sent (blocks removed by the new base world) must disappear
+     * instead of lingering in the client copy.</p>
+     */
+    public void clear() {
+        sections.clear();
+        nonAir.clear();
+        light.reset();
+    }
+
+    /**
      * Put a section loaded from disk and rebuild its non-air bitmap.
      */
     public void putSection(int sectionY, ExtendedBlockStorage section) {

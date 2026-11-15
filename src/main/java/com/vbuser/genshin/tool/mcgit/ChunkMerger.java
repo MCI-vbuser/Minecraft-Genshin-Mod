@@ -1,12 +1,29 @@
 package com.vbuser.genshin.tool.mcgit;
 
+import net.minecraft.block.Block;
+import net.minecraft.init.Blocks;
+import net.minecraft.nbt.NBTTagByteArray;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagIntArray;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraftforge.common.util.Constants;
 
 import java.util.*;
 
 public class ChunkMerger {
+
+    /**
+     * The infinite-height module stores everything outside Y 0..255 in its own
+     * list inside the chunk NBT, not in vanilla "Sections". Without merging it
+     * a remote update would never reach the extended region, and keeping the
+     * old light cache next to merged blocks would leave stale lighting.
+     */
+    private static final String INF_SECTIONS = "inf:ExtendedSections";
+    private static final String INF_FORMAT = "inf:Format";
+    private static final String INF_LIGHT = "inf:Light";
+    private static final int INF_FORMAT_DATA_ARRAY = 2;
+    private static final int INF_FORMAT_PALETTE = 3;
+    private static final int SECTION_VOLUME = 4096;
 
     private final NBTTagCompound baseRoot;
     private final NBTTagCompound remoteRoot;
@@ -33,6 +50,7 @@ public class ChunkMerger {
         NBTTagCompound mergedLevel = worldLevel.copy();
         mergeBlocks(baseLevel, remoteLevel, mergedLevel);
         mergeTileEntities(baseLevel, remoteLevel, mergedLevel);
+        mergeExtendedSections(baseLevel, remoteLevel, mergedLevel);
         NBTTagCompound mergedRoot = new NBTTagCompound();
         mergedRoot.setTag("Level", mergedLevel);
         if (worldRoot.hasKey("DataVersion")) {
@@ -197,6 +215,182 @@ public class ChunkMerger {
             map.put(new BlockPos(x, y, z), tag);
         }
         return map;
+    }
+
+    // ------------------------------------------------------------------
+    // Infinite height: Y < 0 / Y > 255
+    // ------------------------------------------------------------------
+
+    /**
+     * Three-way merge the extended block sections exactly like the vanilla
+     * ones: keep the player's change, otherwise take the remote change. The
+     * stored light arrays and the {@code inf:Light} trust marker are dropped
+     * because they described the old block set, not the merged one; the mod
+     * re-derives them the next time the chunk is loaded.
+     */
+    private void mergeExtendedSections(NBTTagCompound baseLevel, NBTTagCompound remoteLevel,
+                                       NBTTagCompound mergedLevel) {
+        int air = Block.getStateId(Blocks.AIR.getDefaultState());
+        Map<Integer, int[]> base = readExtendedSections(baseLevel, air);
+        Map<Integer, int[]> remote = readExtendedSections(remoteLevel, air);
+        Map<Integer, int[]> world = readExtendedSections(mergedLevel, air);
+
+        if (base.isEmpty() && remote.isEmpty() && world.isEmpty()) {
+            return;
+        }
+
+        TreeSet<Integer> sectionYs = new TreeSet<>();
+        sectionYs.addAll(base.keySet());
+        sectionYs.addAll(remote.keySet());
+        sectionYs.addAll(world.keySet());
+
+        NBTTagList sections = new NBTTagList();
+        for (int sectionY : sectionYs) {
+            int[] merged = mergeExtendedSection(base.get(sectionY), remote.get(sectionY),
+                    world.get(sectionY), air);
+            if (merged == null) {
+                continue;
+            }
+            sections.appendTag(encodeExtendedSection(sectionY, merged, air));
+        }
+
+        if (sections.tagCount() > 0) {
+            mergedLevel.setTag(INF_SECTIONS, sections);
+            mergedLevel.setInteger(INF_FORMAT, INF_FORMAT_PALETTE);
+        } else {
+            mergedLevel.removeTag(INF_SECTIONS);
+            mergedLevel.removeTag(INF_FORMAT);
+        }
+        mergedLevel.removeTag(INF_LIGHT);
+    }
+
+    private Map<Integer, int[]> readExtendedSections(NBTTagCompound level, int air) {
+        Map<Integer, int[]> result = new HashMap<>();
+        if (level == null || !level.hasKey(INF_SECTIONS, Constants.NBT.TAG_LIST)) {
+            return result;
+        }
+        int format = level.getInteger(INF_FORMAT);
+        NBTTagList sections = level.getTagList(INF_SECTIONS, Constants.NBT.TAG_COMPOUND);
+        for (int i = 0; i < sections.tagCount(); i++) {
+            NBTTagCompound section = sections.getCompoundTagAt(i);
+            int sectionY = section.getInteger("Y");
+            result.put(sectionY, decodeExtendedSection(section, format, air));
+        }
+        return result;
+    }
+
+    /**
+     * Decode one saved extended section into 4096 state ids, index layout
+     * {@code (x << 8) | (z << 4) | y} (same as {@code ExtendedColumn}).
+     */
+    private int[] decodeExtendedSection(NBTTagCompound section, int format, int air) {
+        int[] states = new int[SECTION_VOLUME];
+        Arrays.fill(states, air);
+
+        if (format >= INF_FORMAT_PALETTE
+                && section.hasKey("Palette", Constants.NBT.TAG_INT_ARRAY)
+                && (section.hasKey("Indices", Constants.NBT.TAG_BYTE_ARRAY)
+                || section.hasKey("Indices", Constants.NBT.TAG_INT_ARRAY))) {
+            int[] palette = ((NBTTagIntArray) section.getTag("Palette")).getIntArray();
+            if (section.hasKey("Indices", Constants.NBT.TAG_BYTE_ARRAY)) {
+                byte[] indices = section.getByteArray("Indices");
+                int limit = Math.min(indices.length, SECTION_VOLUME);
+                for (int index = 0; index < limit; index++) {
+                    int paletteIndex = indices[index] & 0xFF;
+                    if (paletteIndex < palette.length) {
+                        states[index] = palette[paletteIndex];
+                    }
+                }
+            } else {
+                int[] indices = ((NBTTagIntArray) section.getTag("Indices")).getIntArray();
+                int limit = Math.min(indices.length, SECTION_VOLUME);
+                for (int index = 0; index < limit; index++) {
+                    int paletteIndex = indices[index];
+                    if (paletteIndex >= 0 && paletteIndex < palette.length) {
+                        states[index] = palette[paletteIndex];
+                    }
+                }
+            }
+        } else if (format >= INF_FORMAT_DATA_ARRAY
+                && section.hasKey("Data", Constants.NBT.TAG_INT_ARRAY)) {
+            int[] data = ((NBTTagIntArray) section.getTag("Data")).getIntArray();
+            int limit = Math.min(data.length, SECTION_VOLUME);
+            for (int index = 0; index < limit; index++) {
+                if (data[index] >= 0) {
+                    states[index] = data[index];
+                }
+            }
+        } else {
+            NBTTagList blocks = section.getTagList("Blocks", Constants.NBT.TAG_COMPOUND);
+            for (int i = 0; i < blocks.tagCount(); i++) {
+                NBTTagCompound block = blocks.getCompoundTagAt(i);
+                int packed = block.getShort("P") & 0xFFFF;
+                int index = ((packed >> 8) & 15) << 8 | ((packed >> 4) & 15) << 4 | (packed & 15);
+                states[index] = block.getInteger("S");
+            }
+        }
+        return states;
+    }
+
+    private int[] mergeExtendedSection(int[] base, int[] remote, int[] world, int air) {
+        int[] merged = new int[SECTION_VOLUME];
+        boolean nonAir = false;
+        for (int index = 0; index < SECTION_VOLUME; index++) {
+            int baseState = base != null ? base[index] : air;
+            int remoteState = remote != null ? remote[index] : air;
+            int worldState = world != null ? world[index] : air;
+            int value = worldState;
+            // Same rule as the vanilla merge: the player's change wins a
+            // conflict, otherwise the remote change is taken.
+            if (remoteState != baseState && worldState == baseState) {
+                value = remoteState;
+            }
+            merged[index] = value;
+            if (value != air) {
+                nonAir = true;
+            }
+        }
+        return nonAir ? merged : null;
+    }
+
+    private NBTTagCompound encodeExtendedSection(int sectionY, int[] states, int air) {
+        int[] palette = new int[16];
+        int paletteSize = 1;
+        palette[0] = air;
+        Map<Integer, Integer> lookup = new HashMap<>();
+        lookup.put(air, 0);
+
+        int[] indices = new int[SECTION_VOLUME];
+        for (int index = 0; index < SECTION_VOLUME; index++) {
+            int state = states[index];
+            if (state == air) {
+                continue;
+            }
+            Integer paletteIndex = lookup.get(state);
+            if (paletteIndex == null) {
+                if (paletteSize == palette.length) {
+                    palette = Arrays.copyOf(palette, palette.length * 2);
+                }
+                paletteIndex = paletteSize++;
+                palette[paletteIndex] = state;
+                lookup.put(state, paletteIndex);
+            }
+            indices[index] = paletteIndex;
+        }
+
+        NBTTagCompound section = new NBTTagCompound();
+        section.setInteger("Y", sectionY);
+        section.setTag("Palette", new NBTTagIntArray(Arrays.copyOf(palette, paletteSize)));
+        if (paletteSize <= 256) {
+            byte[] packed = new byte[SECTION_VOLUME];
+            for (int i = 0; i < SECTION_VOLUME; i++) {
+                packed[i] = (byte) indices[i];
+            }
+            section.setTag("Indices", new NBTTagByteArray(packed));
+        } else {
+            section.setTag("Indices", new NBTTagIntArray(indices));
+        }
+        return section;
     }
 
     static class BlockState {

@@ -558,4 +558,19 @@ public class ColumnLight {
     public boolean isEmpty() {
         return this.skyLight.isEmpty() && this.blockLight.isEmpty() && this.column.isEmpty();
     }
+
+    /**
+     * Forget every cached light value. Used by a client-side whole-column
+     * resync: the block data is replaced by the server, so the previously
+     * derived values (and the column top map) must not survive the swap.
+     */
+    public void reset() {
+        this.skyLight.clear();
+        this.blockLight.clear();
+        Arrays.fill(this.topMap, NO_TOP);
+        this.pendingSeeds = 0;
+        this.trusted = true;
+        this.suspended = false;
+        initVanillaEmpty();
+    }
 }

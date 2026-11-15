@@ -85,6 +85,7 @@ com.vbuser.inf
 │   ├── SPacketExtendedSection        批量方块更新（整 section）
 │   ├── SPacketExtendedTileEntity     单个方块实体
 │   ├── *Handler                      客户端处理
+│   ├── ExtendedChunkSync             区块扩展数据整体发送 / 重同步
 │   ├── ExtendedPacketQueue           按玩家 FIFO + 每 tick 字节预算
 │   └── ExtendedJoinCheck             缺 mod 客户端友好断开
 └── client/
@@ -360,10 +361,19 @@ y ∈ 0..255  →  writeBoolean(false) + writeLong(pos.toLong())
 | id | 包 | 内容 |
 |---|---|---|
 | 0 | `SPacketExtendedTileEntity` | `int x, y, z` + NBT（`getUpdateTag`） |
-| 1 | `SPacketExtendedSection` | `int chunkX, chunkZ, sectionY, count` + `count × (short index, int stateId)` |
+| 1 | `SPacketExtendedSection` | `int chunkX, chunkZ, sectionY, count` + `count × (short index, int stateId)` + `byte mode` |
 
 `SPacketExtendedSection` 的 `index` 就是 §3.1 的 0..4095 打包下标，一个包最多
 4096 格（≈ 24.5 KiB），远小于 32 KiB 上限。
+
+末尾的 `mode` 用于整列重同步（`/update` 用）：
+
+- `0` 普通增量；
+- `1` 重置该区块的扩展列（方块、光照、烘焙网格全部丢弃）；
+- `2` 重同步结束（清理失效方块实体并重新推导列顶 / 光照）。
+
+该字节是后加的：旧客户端读完前面的字段就会忽略它，旧服务端不发时按 `0` 处理，
+所以新旧两端可以混用（旧客户端只是没有整列清除能力）。
 
 两个包都只注册在 `Side.CLIENT`。
 
@@ -535,6 +545,7 @@ dispatcher.renderBlock(state, pos, cache, buf);
 | [`light/ExtendedLightEngine`](../../src/main/java/com/vbuser/inf/light/ExtendedLightEngine.java) | 传播引擎、section 播种、可信收敛 |
 | [`light/LightRenderHook`](../../src/main/java/com/vbuser/inf/light/LightRenderHook.java) | 引擎 → 渲染器的可选回调 |
 | [`network/ExtendedPacketQueue`](../../src/main/java/com/vbuser/inf/network/ExtendedPacketQueue.java) | 按玩家 FIFO + 预算发送 |
+| [`network/ExtendedChunkSync`](../../src/main/java/com/vbuser/inf/network/ExtendedChunkSync.java) | 区块扩展数据整体发送 / 重同步 |
 | [`network/ExtendedJoinCheck`](../../src/main/java/com/vbuser/inf/network/ExtendedJoinCheck.java) | 缺 mod 客户端断开 |
 | [`client/ExtendedBlockRenderHandler`](../../src/main/java/com/vbuser/inf/client/ExtendedBlockRenderHandler.java) | 扩展方块 VBO 渲染 |
 | [`client/ExtendedTileEntityRenderHandler`](../../src/main/java/com/vbuser/inf/client/ExtendedTileEntityRenderHandler.java) | 扩展方块实体渲染 |

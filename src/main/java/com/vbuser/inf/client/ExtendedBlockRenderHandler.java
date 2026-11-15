@@ -114,6 +114,23 @@ public class ExtendedBlockRenderHandler {
         DIRTY.add(key(chunkX, chunkZ, sectionY));
     }
 
+    /**
+     * Drop every baked mesh of one chunk. Used when the server replaces the
+     * whole extended column (whole-chunk resync): sections that no longer exist
+     * would otherwise keep drawing their old vertices until the periodic
+     * cleanup notices that the column lost them.
+     */
+    public static void clearChunk(int chunkX, int chunkZ) {
+        java.util.Iterator<Map.Entry<Long, SectionMesh>> iterator = MESHES.entrySet().iterator();
+        while (iterator.hasNext()) {
+            SectionMesh mesh = iterator.next().getValue();
+            if (mesh.chunkX == chunkX && mesh.chunkZ == chunkZ) {
+                mesh.delete();
+                iterator.remove();
+            }
+        }
+    }
+
     private static long key(int chunkX, int chunkZ, int sectionY) {
         return ((long) (chunkX & 0x3FFFFFF) << 38) | ((long) (chunkZ & 0x3FFFFFF) << 12)
                 | (sectionY & 0xFFF);

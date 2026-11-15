@@ -153,3 +153,12 @@ task networkBenchmark(type: JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     main = 'com.vbuser.genshin.tool.network.benchmark.NetworkBenchmark'
 }
+
+task mcgitSelfTest(type: JavaExec) {
+    group = 'verification'
+    description = 'Checks the mcgit three-way merge (including infinite-height sections) and base URL parsing.'
+    classpath = sourceSets.test.runtimeClasspath
+    main = 'com.vbuser.genshin.tool.mcgit.McGitSelfTest'
+    workingDir = file("$buildDir/tmp/mcgit-self-test")
+    doFirst { workingDir.mkdirs() }
+}
