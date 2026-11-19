@@ -1,6 +1,7 @@
 package com.vbuser.inf.light;
 
 import com.vbuser.inf.HeightConstants;
+import com.vbuser.inf.SectionKey;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
 import net.minecraft.util.math.BlockPos;
@@ -32,6 +33,25 @@ public final class ExtendedLightEngine {
     /** Sections seeded per tick; a whole chunk is done in one tick. */
     private static final int MAX_SECTIONS_PER_TICK = 48;
 
+    /**
+     * Hard cap on the light nodes a single tick may process.
+     *
+     * <p>Light is normally drained completely, because a budgeted diff makes the
+     * player watch the brightness crawl (see {@link #tick()}). But one edit can
+     * legitimately move an enormous volume: opening the single block that seals
+     * a whole extended column against the sky, or sealing it again, re-derives
+     * every cell of that column plus its 15 block shell. Draining that without a
+     * limit turns one block change into a multi second frame and lets the node
+     * queues grow into the hundreds of megabytes. The remainder stays queued and
+     * is finished by the following ticks; the resulting field is identical, only
+     * a few frames later.</p>
+     *
+     * <p>100k nodes is roughly tens of milliseconds. A normal relight (a chunk
+     * load seeds at most {@link #MAX_SECTIONS_PER_TICK} sections) stays below it
+     * and still finishes inside the same tick.</p>
+     */
+    private static final int MAX_NODES_PER_TICK = 100_000;
+
     private static final int[] DX = {1, -1, 0, 0, 0, 0};
     private static final int[] DY = {0, 0, 1, -1, 0, 0};
     private static final int[] DZ = {0, 0, 0, 0, 1, -1};
@@ -49,7 +69,7 @@ public final class ExtendedLightEngine {
     private final ConcurrentLinkedQueue<int[]> pendingSections = new ConcurrentLinkedQueue<>();
 
     /** Section keys already queued, so the cascade below cannot explode. */
-    private final java.util.Set<Long> scheduledSections =
+    private final java.util.Set<SectionKey> scheduledSections =
             java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
 
@@ -388,7 +408,7 @@ public final class ExtendedLightEngine {
     }
     /** Queue a whole section for seeding (used when a section appears or is loaded). */
     public void scheduleSectionInit(int chunkX, int chunkZ, int sectionY) {
-        long key = sectionKey(chunkX, chunkZ, sectionY);
+        SectionKey key = sectionKey(chunkX, chunkZ, sectionY);
         if (this.scheduledSections.add(key)) {
             this.pendingSections.add(new int[]{chunkX, sectionY, chunkZ});
         }
@@ -399,9 +419,8 @@ public final class ExtendedLightEngine {
         this.trustPending.add(column);
     }
 
-    private static long sectionKey(int chunkX, int chunkZ, int sectionY) {
-        return ((long) (chunkX & 0x3FFFFFF) << 38) | ((long) (chunkZ & 0x3FFFFFF) << 12)
-                | (sectionY & 0xFFF);
+    private static SectionKey sectionKey(int chunkX, int chunkZ, int sectionY) {
+        return SectionKey.of(chunkX, sectionY, chunkZ);
     }
     // ------------------------------------------------------------------
     // Cell updates
@@ -523,27 +542,30 @@ public final class ExtendedLightEngine {
     // ------------------------------------------------------------------
 
     /**
-     * Drain the queues. Light is drained completely, like vanilla does: a
-     * budgeted diff makes the player watch the brightness crawl towards its new
+     * Drain the queues. Light is normally drained completely, like vanilla does:
+     * a budgeted diff makes the player watch the brightness crawl towards its new
      * value over several frames, which looks far worse than one slightly longer
-     * tick. Section seeding is the only step that is limited per tick.
+     * tick. Section seeding and the per node budget
+     * ({@link #MAX_NODES_PER_TICK}) are the only two limits; the budget exists
+     * for the edits whose relight is measured in seconds, not for the usual ones.
      */
     public boolean tick() {
         this.cacheValid = true;
         // Converge: removals first, then additions, then recompute the cells
         // whose neighbors changed and run again until nothing is left. This is
         // what keeps the field consistent no matter in which order blocks
-        // changed during the tick.
-        for (int pass = 0; pass < 8; pass++) {
-            int budget = Integer.MAX_VALUE;
+        // changed during the tick. The per tick budget only stops the work, it
+        // never drops it: whatever is left is picked up by the next tick.
+        int budget = MAX_NODES_PER_TICK;
+        for (int pass = 0; pass < 8 && budget > 0; pass++) {
             budget = runRemove(this.skyRemove, EnumSkyBlock.SKY, budget);
             budget = runRemove(this.blockRemove, EnumSkyBlock.BLOCK, budget);
             budget = runAdd(this.skyAdd, EnumSkyBlock.SKY, budget);
-            runAdd(this.blockAdd, EnumSkyBlock.BLOCK, budget);
+            budget = runAdd(this.blockAdd, EnumSkyBlock.BLOCK, budget);
             if (this.dirty.isEmpty()) {
                 break;
             }
-            runDirty();
+            budget = runDirty(budget);
         }
         runSectionInit();
         this.cacheValid = false;
@@ -668,15 +690,12 @@ public final class ExtendedLightEngine {
         return budget;
     }
 
-    private void runDirty() {
+    private int runDirty(int budget) {
         NodeQueue queue = this.dirty;
-        int processed = 0;
-        while (!queue.isEmpty()) {
+        while (!queue.isEmpty() && budget > 0) {
             int i = queue.read;
             queue.read += 4;
-            if (++processed > 200000) {
-                break;
-            }
+            budget--;
             int x = queue.data[i];
             int y = queue.data[i + 1];
             int z = queue.data[i + 2];
@@ -688,6 +707,7 @@ public final class ExtendedLightEngine {
             updateBlockCell(column, x, y, z);
         }
         queue.compact();
+        return budget;
     }
 
     private void runSectionInit() {

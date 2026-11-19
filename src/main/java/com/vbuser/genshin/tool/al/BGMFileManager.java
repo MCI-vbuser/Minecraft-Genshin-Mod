@@ -10,7 +10,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -32,6 +36,12 @@ import java.util.Map;
  */
 @SuppressWarnings("unused")
 public class BGMFileManager {
+
+    /**
+     * Staging directory for in-progress downloads. Entries whose name starts with a dot
+     * are internal and never listed as playable tracks.
+     */
+    private static final String INCOMING_DIR = ".incoming";
 
     private static volatile File bgmDir;
 
@@ -127,6 +137,10 @@ public class BGMFileManager {
             return;
         }
         for (File child : children) {
+            // Skip internal entries such as the ".incoming" download staging directory.
+            if (child.getName().startsWith(".")) {
+                continue;
+            }
             if (child.isDirectory()) {
                 collect(root, child, out);
             } else {
@@ -141,6 +155,11 @@ public class BGMFileManager {
         if (!file.isFile()) {
             return null;
         }
+        return getMD5(file);
+    }
+
+    /** MD5 of an arbitrary file (used to verify a finished download before publishing it). */
+    public static String getMD5(File file) throws IOException {
         try (FileInputStream fis = new FileInputStream(file)) {
             MessageDigest md = MessageDigest.getInstance("MD5");
             byte[] buffer = new byte[8192];
@@ -158,6 +177,40 @@ public class BGMFileManager {
         }
     }
 
+    /**
+     * @return the hidden temp file a chunked download is assembled in. It lives next to
+     * the final destination (same file store) so {@link #publish(String, File)} can move
+     * it atomically.
+     */
+    public static File getTempFile(String fileName, long sessionId) throws IOException {
+        File target = resolve(fileName);
+        File parent = target.getParentFile();
+        File dir = new File(parent != null ? parent : getBGMDir(), INCOMING_DIR);
+        if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
+            throw new IOException("Could not create the bgm download directory: " + dir);
+        }
+        return new File(dir, target.getName() + "." + sessionId + ".part");
+    }
+
+    /**
+     * Moves a fully received temp file to its final name. Atomic when the file system
+     * supports it, so readers never observe a partially written track.
+     */
+    public static void publish(String fileName, File temp) throws IOException {
+        File target = resolve(fileName);
+        File parent = target.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs() && !parent.isDirectory()) {
+            throw new IOException("Could not create the bgm directory: " + parent);
+        }
+        Path source = temp.toPath();
+        Path destination = target.toPath();
+        try {
+            Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException | FileAlreadyExistsException e) {
+            Files.move(source, destination, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
     public static void saveFile(String fileName, byte[] data) throws IOException {
         File target = resolve(fileName);
         File parent = target.getParentFile();
@@ -168,21 +221,37 @@ public class BGMFileManager {
         Files.write(target.toPath(), data);
     }
 
+    /**
+     * Legacy in-memory save path. Streams the chunks straight to disk instead of
+     * concatenating them into one large array.
+     */
     public static void saveChunks(String fileName, Map<Integer, byte[]> chunks, int total) throws IOException {
-        File target = resolve(fileName);
-        File parent = target.getParentFile();
-        if (parent != null && !parent.exists()) {
-            //noinspection ResultOfMethodCallIgnored
-            parent.mkdirs();
+        if (total <= 0) {
+            throw new IOException("No chunks to save for " + fileName);
         }
-        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
-        for (int i = 0; i < total; i++) {
-            byte[] chunk = chunks.get(i);
-            if (chunk != null) {
-                buffer.write(chunk);
+        File temp = getTempFile(fileName, System.nanoTime());
+        boolean published = false;
+        try {
+            try (RandomAccessFile output = new RandomAccessFile(temp, "rw")) {
+                for (int i = 0; i < total; i++) {
+                    byte[] chunk = chunks.get(i);
+                    if (chunk == null) {
+                        throw new IOException("Missing chunk " + i + " of " + total + " for " + fileName);
+                    }
+                    output.write(chunk);
+                }
+            }
+            publish(fileName, temp);
+            published = true;
+        } finally {
+            if (!published) {
+                try {
+                    Files.deleteIfExists(temp.toPath());
+                } catch (IOException ignored) {
+                    // The caller still gets the original failure.
+                }
             }
         }
-        Files.write(target.toPath(), buffer.toByteArray());
     }
 
     /**

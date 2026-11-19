@@ -16,7 +16,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * JavaFX based video decoder that exposes the decoded frame as an ARGB int array.
@@ -89,9 +91,20 @@ public class FXVideoPlayer implements IVideoFrameProvider {
     }
 
     private final String videoFilePath;
+    private final Runnable onEnded;
+    private final Consumer<String> onFailed;
+    private final CountDownLatch openLatch = new CountDownLatch(1);
+    private volatile boolean ready;
+    private volatile String openFailure;
 
     public FXVideoPlayer(String videoFilePath) {
+        this(videoFilePath, null, null);
+    }
+
+    public FXVideoPlayer(String videoFilePath, Runnable onEnded, Consumer<String> onFailed) {
         this.videoFilePath = videoFilePath;
+        this.onEnded = onEnded;
+        this.onFailed = onFailed;
     }
 
     @Override
@@ -114,6 +127,8 @@ public class FXVideoPlayer implements IVideoFrameProvider {
         }
         paused = false;
         stopped = false;
+        ready = false;
+        openFailure = null;
         playing = true;
         try {
             Platform.runLater(this::openMedia);
@@ -122,6 +137,39 @@ public class FXVideoPlayer implements IVideoFrameProvider {
             LOGGER.error("[FXVideoPlayer] Could not schedule media creation", t);
             reportFailure("JavaFX could not start playback: " + t);
         }
+    }
+
+    /**
+     * Waits until the media pipeline reported ready or failed.
+     *
+     * <p>A missing JavaFX native media component fails synchronously during
+     * {@link #start()}; that failure is remembered here so the caller never mistakes the
+     * attempt for a started video.</p>
+     */
+    @Override
+    public boolean awaitReady(long timeoutMs) {
+        try {
+            if (!openLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                openFailure = "JavaFX did not open the media in time";
+                return false;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            openFailure = "Interrupted while opening the media";
+            return false;
+        }
+        if (!ready || stopped) {
+            if (openFailure == null) {
+                openFailure = "JavaFX could not open the media";
+            }
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public String getOpenFailure() {
+        return openFailure;
     }
 
     /** Creates the (invisible) stage and the media pipeline. */
@@ -166,14 +214,25 @@ public class FXVideoPlayer implements IVideoFrameProvider {
             invisibleStage.show();
 
             mediaPlayer.setOnReady(() -> {
+                if (stopped) {
+                    releaseStageAndPlayer();
+                    return;
+                }
                 width = media.getWidth();
                 height = media.getHeight();
                 totalMs = (long) media.getDuration().toMillis();
                 LOGGER.info("[FXVideoPlayer] Ready: {}x{} ({} ms)", width, height, totalMs);
                 startSnapshotTimer();
+                ready = true;
+                openLatch.countDown();
                 mediaPlayer.play();
             });
-            mediaPlayer.setOnEndOfMedia(() -> VideoPlaybackManager.getInstance().onPlaybackEnded());
+            mediaPlayer.setOnEndOfMedia(() -> {
+                playing = false;
+                if (onEnded != null) {
+                    onEnded.run();
+                }
+            });
             mediaPlayer.setOnError(() -> onPlayerError(src));
         } catch (Exception e) {
             LOGGER.error("[FXVideoPlayer] Error starting the player [source={}]", source, e);
@@ -183,10 +242,14 @@ public class FXVideoPlayer implements IVideoFrameProvider {
     }
 
     private void onPlayerError(String source) {
+        if (stopped) {
+            return;
+        }
         String error = mediaPlayer == null || mediaPlayer.getError() == null
                 ? "unknown media error"
                 : mediaPlayer.getError().getMessage();
         LOGGER.error("[FXVideoPlayer] MediaPlayer error: {} [source={}]", error, source);
+        playing = false;
         releaseStageAndPlayer();
         reportFailure(error + " [source=" + source + "]");
     }
@@ -215,7 +278,12 @@ public class FXVideoPlayer implements IVideoFrameProvider {
     }
 
     private void reportFailure(String reason) {
-        VideoPlaybackManager.getInstance().onPlaybackFailed(reason);
+        openFailure = reason;
+        playing = false;
+        openLatch.countDown();
+        if (onFailed != null) {
+            onFailed.accept(reason);
+        }
     }
 
     private void startSnapshotTimer() {
@@ -277,6 +345,9 @@ public class FXVideoPlayer implements IVideoFrameProvider {
         stopped = true;
         playing = false;
         paused = false;
+        ready = false;
+        // Release a caller blocked in awaitReady().
+        openLatch.countDown();
         runOnFx(this::releaseStageAndPlayer);
     }
 

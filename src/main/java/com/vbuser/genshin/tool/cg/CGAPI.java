@@ -143,7 +143,12 @@ public final class CGAPI {
             LOGGER.warn("CG file not found on this server: {}", CGFileManager.getCGDir() + "/" + fileName);
             return false;
         }
-        NetworkManager.sendToPlayer(new PlayCGPacket(fileName), player);
+        String version = CGFileManager.fingerprint(fileName);
+        if (version == null) {
+            LOGGER.warn("CG file could not be read on this server: {}", fileName);
+            return false;
+        }
+        NetworkManager.sendToPlayer(new PlayCGPacket(fileName, version), player);
         return true;
     }
 
@@ -157,7 +162,12 @@ public final class CGAPI {
             LOGGER.warn("CG file not found on the server: {}", CGFileManager.getCGDir() + "/" + fileName);
             return 0;
         }
-        PlayCGPacket packet = new PlayCGPacket(fileName);
+        String version = CGFileManager.fingerprint(fileName);
+        if (version == null) {
+            LOGGER.warn("CG file could not be read on this server: {}", fileName);
+            return 0;
+        }
+        PlayCGPacket packet = new PlayCGPacket(fileName, version);
         int sent = 0;
         for (EntityPlayerMP player : players) {
             if (player != null) {

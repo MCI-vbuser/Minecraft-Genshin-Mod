@@ -2,8 +2,6 @@ package com.vbuser.mixin;
 
 import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.network.ExtendedChunkSync;
-import com.vbuser.inf.network.ExtendedPacketQueue;
-import com.vbuser.inf.network.SPacketExtendedSection;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.management.PlayerChunkMapEntry;
 import net.minecraft.world.chunk.Chunk;
@@ -30,14 +28,7 @@ public abstract class MixinPlayerChunkMapEntry {
         if (this.chunk == null || !HeightConstants.isExtendedWorld(this.chunk.getWorld())) {
             return;
         }
-
-        List<SPacketExtendedSection> packets = ExtendedChunkSync.buildSectionPackets(this.chunk);
-        for (EntityPlayerMP player : this.players) {
-            for (SPacketExtendedSection packet : packets) {
-                ExtendedPacketQueue.sendSection(player, packet);
-            }
-            ExtendedChunkSync.sendTileEntities(player, this.chunk);
-        }
+        ExtendedChunkSync.sendChunk(this.players, this.chunk);
     }
 
     @Inject(

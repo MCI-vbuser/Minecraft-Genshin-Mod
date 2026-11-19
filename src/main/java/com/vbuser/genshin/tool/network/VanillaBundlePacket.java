@@ -136,13 +136,31 @@ public class VanillaBundlePacket implements IMessage {
         try {
             inflater.setInput(data);
             byte[] out = new byte[originalSize];
+            byte[] overflow = new byte[1];
             int offset = 0;
-            while (!inflater.finished() && offset < out.length) {
-                int count = inflater.inflate(out, offset, out.length - offset);
-                if (count == 0 && inflater.needsInput()) {
+            while (!inflater.finished()) {
+                // Even a full output buffer needs one final inflate call: zlib
+                // may still have to consume its trailer. A one-byte probe also
+                // rejects streams whose real output exceeds the declared size.
+                byte[] target = offset == out.length ? overflow : out;
+                int targetOffset = offset == out.length ? 0 : offset;
+                int targetLength = offset == out.length ? 1 : out.length - offset;
+                int count = inflater.inflate(target, targetOffset, targetLength);
+                if (count > 0) {
+                    if (offset == out.length) {
+                        throw new IllegalArgumentException("Zlib output exceeds the declared size");
+                    }
+                    offset += count;
+                    continue;
+                }
+                if (inflater.finished()) {
                     break;
                 }
-                offset += count;
+                if (inflater.needsInput() || inflater.needsDictionary()) {
+                    throw new IllegalArgumentException("Truncated or dictionary-compressed zlib stream");
+                }
+                // A malformed stream must not spin forever on the Netty thread.
+                throw new IllegalArgumentException("Zlib decompressor made no progress");
             }
             if (offset != originalSize) {
                 throw new IllegalArgumentException(

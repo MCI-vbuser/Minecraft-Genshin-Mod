@@ -102,6 +102,8 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
     private Thread decodeThread;
     private volatile Pointer reader;
     private volatile int openError;
+    private final CountDownLatch openLatch = new CountDownLatch(1);
+    private volatile String openFailure;
 
     private final Runnable onEnded;
     private volatile MFAudioPlayer audio;
@@ -138,6 +140,11 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
         return available;
     }
 
+    /**
+     * Starts opening the media and returns immediately; the caller waits for the decoder
+     * with {@link #awaitReady(long)} on a worker thread. Waiting inside this method used to
+     * block the client thread for up to 15 seconds while Windows opened the file.
+     */
     @Override
     public void start() {
         if (!isSupported()) {
@@ -150,29 +157,58 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
         stopped = false;
         paused = false;
         openError = 0;
+        openFailure = null;
 
-        final CountDownLatch opened = new CountDownLatch(1);
         running = true;
-        decodeThread = new Thread(() -> runDecoder(opened), "CG-MFDecoder");
+        decodeThread = new Thread(this::runDecoder, "CG-MFDecoder");
         decodeThread.setDaemon(true);
         decodeThread.start();
+    }
+
+    /**
+     * Waits for the decoder to finish opening the media.
+     *
+     * @return true when frames can be read; false on timeout, cancellation or media error
+     */
+    @Override
+    public boolean awaitReady(long timeoutMs) {
         try {
-            if (!opened.await(15, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("Media Foundation did not open the media in time");
+            if (!openLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                openFailure = "Media Foundation did not open the media in time";
+                return false;
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while opening the media", e);
+            openFailure = "Interrupted while opening the media";
+            return false;
         }
-        if (openError != 0) {
-            throw new IllegalStateException("Media Foundation could not open the media (hr=0x"
-                    + Integer.toHexString(openError) + ")");
+        if (stopped) {
+            openFailure = "the playback was stopped before the decoder was ready";
+            return false;
         }
+        if (openError != 0 || width <= 0 || height <= 0) {
+            if (openFailure == null) {
+                openFailure = "Media Foundation could not open the media (hr=0x"
+                        + Integer.toHexString(openError) + ")";
+            }
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public String getOpenFailure() {
+        return openFailure;
+    }
+
+    /** Marks the attempt as opened (or as no longer pending). */
+    private void markOpenFinished() {
+        openLatch.countDown();
     }
 
     // ------------------------------------------------------------------ decode thread
 
-    private void runDecoder(CountDownLatch opened) {
+    private void runDecoder() {
         Pointer attrs = null;
         Pointer mediaType = null;
         Pointer sourceReader = null;
@@ -260,7 +296,7 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
                 return;
             }
             LOGGER.info("[MFVideoPlayer] Opened {} ({}x{}, {} ms)", url, width, height, durationMs);
-            opened.countDown();
+            markOpenFinished();
 
             audio = new MFAudioPlayer(filePath);
             audio.start();
@@ -269,6 +305,7 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
         } catch (Throwable t) {
             LOGGER.error("[MFVideoPlayer] Decoder crashed", t);
             openError = openError == 0 ? -99 : openError;
+            openFailure = "Media Foundation decoder crashed: " + t;
         } finally {
             running = false;
             reader = null;
@@ -298,7 +335,8 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
                 } catch (Throwable ignored) {
                 }
             }
-            opened.countDown();
+            // Also releases a caller waiting for a decoder that failed to open.
+            markOpenFinished();
         }
     }
 
@@ -586,6 +624,8 @@ public final class MFVideoPlayer implements IVideoFrameProvider {
     public void stop() {
         stopped = true;
         paused = false;
+        // Release a caller blocked in awaitReady() as well.
+        markOpenFinished();
         MFAudioPlayer audioPlayer = audio;
         if (audioPlayer != null) {
             audioPlayer.stop();

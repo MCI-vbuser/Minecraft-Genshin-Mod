@@ -39,10 +39,12 @@ import java.util.Locale;
  * </ol>
  *
  * <p>Cheap things that are aggressively avoided: the pass is skipped entirely
- * when the camera cannot see the volume, the screen area outside the projected
- * volume is scissored away, the depth buffer is only copied when the pass
- * actually runs, and the resolution / step count follow the measured frame time
- * (with a fixed quality override available through {@code /cloud}).</p>
+ * when the camera cannot see the volume, it is skipped as well when the volume
+ * projects to an empty screen rectangle (a cluster off to the side), the screen
+ * area outside the projected volume is scissored away, the depth buffer is only
+ * copied when the pass actually runs, and the resolution / step count follow the
+ * measured frame time (with a fixed quality override available through
+ * {@code /cloud}).</p>
  */
 @SideOnly(Side.CLIENT)
 public class CloudVolumeRenderer {
@@ -159,15 +161,87 @@ public class CloudVolumeRenderer {
     private float lastNearPlane = 0.05F;
     private float lastFarPlane = 256.0F;
 
-    // GPU timer (ARB_timer_query). Measuring the pass itself beats guessing from
-    // the frame time, and it lets auto quality react to the cloud cost instead
-    // of to whatever else the scene is doing.
-    private boolean timerSupported;
-    private int timerQuery = -1;
-    private boolean timerActive;
-    private boolean queryInFlight;
-    private float gpuMsEma;
-    private int gpuSamples;
+    // GPU timers (ARB_timer_query). Depth copy, raymarch and composite each get
+    // their own query, so the frame can be attributed to the part that actually
+    // costs it: the copy is screen sized while the march runs at render scale.
+    // The sum is still what auto quality reacts to, because from the player's
+    // point of view the whole cloud pass is what competes with the frame.
+    private final GpuTimer depthCopyTimer = new GpuTimer();
+    private final GpuTimer marchTimer = new GpuTimer();
+    private final GpuTimer compositeTimer = new GpuTimer();
+
+    private static final int QUERY_RESULT = 0x8866;
+    private static final int QUERY_RESULT_AVAILABLE = 0x8867;
+
+    /**
+     * One GL_TIME_ELAPSED query with its own pending result.
+     *
+     * <p>{@link #begin()} drains the previous result first; when it is not
+     * available yet the sample for this frame is skipped instead of blocking.
+     * {@link #end()} must be idempotent, because the renderer ends every timer
+     * from its {@code finally} block.</p>
+     */
+    private static final class GpuTimer {
+        private int query = -1;
+        private boolean active;
+        private boolean inFlight;
+        private float emaMs;
+        private int samples;
+
+        void init() {
+            try {
+                this.query = GL15.glGenQueries();
+            } catch (Throwable t) {
+                this.query = -1;
+            }
+        }
+
+        boolean hasSamples() {
+            return this.samples > 0;
+        }
+
+        float getEmaMs() {
+            return this.emaMs;
+        }
+
+        int getSamples() {
+            return this.samples;
+        }
+
+        void begin() {
+            if (this.query == -1) {
+                return;
+            }
+            if (this.inFlight) {
+                long available = ARBTimerQuery.glGetQueryObjecti64(this.query, QUERY_RESULT_AVAILABLE);
+                if (available == 0L) {
+                    return;
+                }
+                long nanos = ARBTimerQuery.glGetQueryObjecti64(this.query, QUERY_RESULT);
+                this.inFlight = false;
+                if (nanos > 0L) {
+                    float millis = nanos / 1_000_000.0F;
+                    if (this.samples == 0) {
+                        this.emaMs = millis;
+                    } else {
+                        this.emaMs += (millis - this.emaMs) * 0.1F;
+                    }
+                    this.samples++;
+                }
+            }
+            GL15.glBeginQuery(ARBTimerQuery.GL_TIME_ELAPSED, this.query);
+            this.active = true;
+        }
+
+        void end() {
+            if (!this.active) {
+                return;
+            }
+            this.active = false;
+            GL15.glEndQuery(ARBTimerQuery.GL_TIME_ELAPSED);
+            this.inFlight = true;
+        }
+    }
 
     public CloudVolumeRenderer() {
         instance = this;
@@ -258,71 +332,39 @@ public class CloudVolumeRenderer {
         return this.frameMsEma;
     }
 
-    /** GPU milliseconds spent in the cloud passes, as measured by a GL timer. */
+    /** GPU milliseconds spent in the cloud passes, as measured by the GL timers. */
     public float getGpuMsEma() {
-        return this.gpuMsEma;
+        return this.depthCopyTimer.getEmaMs() + this.marchTimer.getEmaMs() + this.compositeTimer.getEmaMs();
     }
 
     public boolean hasGpuTimer() {
-        return this.timerSupported && this.gpuSamples > 0;
+        return this.marchTimer.hasSamples();
     }
 
     private void initGpuTimer() {
         try {
-            this.timerSupported = org.lwjgl.opengl.GLContext.getCapabilities().GL_ARB_timer_query;
-            if (this.timerSupported) {
-                this.timerQuery = GL15.glGenQueries();
+            if (org.lwjgl.opengl.GLContext.getCapabilities().GL_ARB_timer_query) {
+                this.depthCopyTimer.init();
+                this.marchTimer.init();
+                this.compositeTimer.init();
             }
         } catch (Throwable t) {
-            this.timerSupported = false;
-            this.timerQuery = -1;
+            // every timer stays at query == -1, which disables sampling
         }
     }
-
-    private void beginCloudTimer() {
-        if (!this.timerSupported || this.timerQuery == -1) {
-            return;
-        }
-        if (this.queryInFlight) {
-            long available = ARBTimerQuery.glGetQueryObjecti64(this.timerQuery, QUERY_RESULT_AVAILABLE);
-            if (available == 0L) {
-                return;
-            }
-            long nanos = ARBTimerQuery.glGetQueryObjecti64(this.timerQuery, QUERY_RESULT);
-            this.queryInFlight = false;
-            if (nanos > 0L) {
-                float millis = nanos / 1_000_000.0F;
-                if (this.gpuSamples == 0) {
-                    this.gpuMsEma = millis;
-                } else {
-                    this.gpuMsEma += (millis - this.gpuMsEma) * 0.1F;
-                }
-                this.gpuSamples++;
-            }
-        }
-        GL15.glBeginQuery(ARBTimerQuery.GL_TIME_ELAPSED, this.timerQuery);
-        this.timerActive = true;
-    }
-
-    private void endCloudTimer() {
-        if (!this.timerActive) {
-            return;
-        }
-        this.timerActive = false;
-        GL15.glEndQuery(ARBTimerQuery.GL_TIME_ELAPSED);
-        this.queryInFlight = true;
-    }
-
-    private static final int QUERY_RESULT = 0x8866;
-    private static final int QUERY_RESULT_AVAILABLE = 0x8867;
 
     public String describe() {
         CloudDensityVolume volume = this.volume;
         return String.format(Locale.ROOT,
-                "scale=%.2f steps=%d target=%dx%d frame=%.1fms gpu=%.2fms vol=%dx%dx%d cell=%d mode=%s",
+                "scale=%.2f steps=%d target=%dx%d frame=%.1fms gpu=%.2fms (copy=%.2f march=%.2f composite=%.2f)"
+                        + " vol=%dx%dx%d cell=%d rebuild=%.2fms upload=%.2fms resize=%.2fms mode=%s",
                 this.renderScale, stepCount(), this.targetW, this.targetH,
-                this.frameMsEma, this.hasGpuTimer() ? this.gpuMsEma : -1.0F,
+                this.frameMsEma, this.hasGpuTimer() ? this.getGpuMsEma() : -1.0F,
+                this.depthCopyTimer.getEmaMs(), this.marchTimer.getEmaMs(), this.compositeTimer.getEmaMs(),
                 volume.getDimX(), volume.getDimY(), volume.getDimZ(), volume.getCellSize(),
+                volume.getLastRebuildNanos() / 1_000_000.0D,
+                volume.getLastTextureUploadNanos() / 1_000_000.0D,
+                volume.getLastReallocateNanos() / 1_000_000.0D,
                 qualityName(qualityMode));
     }
 
@@ -435,7 +477,14 @@ public class CloudVolumeRenderer {
             return;
         }
 
-        int[] scissor = this.computeScissor(cameraPos, volMin, volMax, basis, width, height);
+        ProjectionCull cull = this.projectVolume(cameraPos, volMin, volMax, basis, width, height);
+        if (cull.kind == ProjectionCull.EMPTY) {
+            // The whole box projects outside the screen (a cluster off to the
+            // side): no pixel can contain cloud, so return before the depth
+            // copy, the target resize and any GPU timer.
+            return;
+        }
+        int[] scissor = cull.rect;
 
         this.resolveScale();
         this.targetW = Math.max(1, (int) (width * this.renderScale));
@@ -454,12 +503,16 @@ public class CloudVolumeRenderer {
         }
 
         int prevFbo = GL11.glGetInteger(GL30.GL_FRAMEBUFFER_BINDING);
-        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
-        GlStateManager.bindTexture(this.depthTexture);
-        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
-
         boolean scissorWasOn = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
         try {
+            // The depth copy is screen sized and runs at full resolution, while
+            // the march runs at the reduced scale, so it gets its own query.
+            this.depthCopyTimer.begin();
+            GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+            GlStateManager.bindTexture(this.depthTexture);
+            GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+            this.depthCopyTimer.end();
+
             if (useFbo) {
                 GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, this.cloudFbo);
                 GL11.glViewport(0, 0, this.targetW, this.targetH);
@@ -479,8 +532,9 @@ public class CloudVolumeRenderer {
                 GL11.glScissor(sx, sy, sw, sh);
             }
 
-            this.beginCloudTimer();
+            this.marchTimer.begin();
             this.renderVolumePass(cameraPos, basis, volMin, volMax, world, view, partialTicks);
+            this.marchTimer.end();
 
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
             if (useFbo) {
@@ -492,11 +546,15 @@ public class CloudVolumeRenderer {
                     GL11.glEnable(GL11.GL_SCISSOR_TEST);
                     GL11.glScissor(scissor[0], scissor[1], scissor[2] - scissor[0], scissor[3] - scissor[1]);
                 }
+                this.compositeTimer.begin();
                 this.compositeToScreen(this.targetW, this.targetH);
+                this.compositeTimer.end();
                 GL11.glDisable(GL11.GL_SCISSOR_TEST);
             }
         } finally {
-            this.endCloudTimer();
+            this.depthCopyTimer.end();
+            this.marchTimer.end();
+            this.compositeTimer.end();
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, prevFbo);
             GL11.glViewport(0, 0, width, height);
             GL11.glScissor(0, 0, width, height);
@@ -565,11 +623,11 @@ public class CloudVolumeRenderer {
         if (this.framesSinceQualityChange < 30) {
             return;
         }
-        if (this.hasGpuTimer() && this.gpuSamples > 40) {
-            if (this.gpuMsEma > 2.2F && this.renderScale > MIN_SCALE) {
+        if (this.hasGpuTimer() && this.marchTimer.getSamples() > 40) {
+            if (this.getGpuMsEma() > 2.2F && this.renderScale > MIN_SCALE) {
                 this.renderScale = Math.max(MIN_SCALE, this.renderScale - 0.06F);
                 this.framesSinceQualityChange = 0;
-            } else if (this.gpuMsEma < 1.0F && this.renderScale < MAX_SCALE) {
+            } else if (this.getGpuMsEma() < 1.0F && this.renderScale < MAX_SCALE) {
                 this.renderScale = Math.min(MAX_SCALE, this.renderScale + 0.04F);
                 this.framesSinceQualityChange = 0;
             }
@@ -596,6 +654,33 @@ public class CloudVolumeRenderer {
         float aspect;
         float nearPlane;
         float farPlane;
+    }
+
+    /**
+     * Where the volume box lands on the screen.
+     *
+     * <p>The old helper returned {@code null} for both "the box cannot touch a
+     * pixel" and "the box may cover everything", so the empty case could not be
+     * told apart from the full one. They are separate results now.</p>
+     */
+    private static final class ProjectionCull {
+        /** Nothing of the box is on screen; the caller can skip the pass. */
+        static final int EMPTY = 0;
+        /** The box may cover the whole screen, or the near plane cuts it; no scissor. */
+        static final int FULL = 1;
+        /** A bounded screen rectangle, in pixels with origin bottom left. */
+        static final int RECT = 2;
+
+        static final ProjectionCull EMPTY_RESULT = new ProjectionCull(EMPTY, null);
+        static final ProjectionCull FULL_RESULT = new ProjectionCull(FULL, null);
+
+        final int kind;
+        final int[] rect;
+
+        private ProjectionCull(int kind, int[] rect) {
+            this.kind = kind;
+            this.rect = rect;
+        }
     }
 
     private CameraBasis readCameraBasis(Minecraft mc, Entity view, float partialTicks) {
@@ -695,15 +780,22 @@ public class CloudVolumeRenderer {
     }
 
     /**
-     * Screen rectangle (in pixels, origin bottom left) that the volume can cover.
-     * Returns {@code null} for "full screen".
+     * Projects the volume box onto the screen.
+     *
+     * <p>When any corner is at or behind the near plane the box can straddle the
+     * camera, and the projection of the corners is no longer the projection of
+     * the box, so the conservative {@link ProjectionCull#FULL} is returned and
+     * nothing is culled. Otherwise the eight projections bound the (convex) box
+     * and an empty bound really means that no pixel can contain cloud.</p>
      */
-    private int[] computeScissor(Vec3d cameraPos, Vec3d volMin, Vec3d volMax, CameraBasis basis,
-                                 int width, int height) {
+    private ProjectionCull projectVolume(Vec3d cameraPos, Vec3d volMin, Vec3d volMax, CameraBasis basis,
+                                         int width, int height) {
         double minX = Double.MAX_VALUE;
         double minY = Double.MAX_VALUE;
         double maxX = -Double.MAX_VALUE;
         double maxY = -Double.MAX_VALUE;
+        boolean anyInFront = false;
+        boolean anyBehind = false;
         for (int corner = 0; corner < 8; corner++) {
             double x = (corner & 1) == 0 ? volMin.x : volMax.x;
             double y = (corner & 2) == 0 ? volMin.y : volMax.y;
@@ -711,8 +803,10 @@ public class CloudVolumeRenderer {
             Vec3d rel = new Vec3d(x, y, z).subtract(cameraPos);
             double viewZ = rel.dotProduct(basis.forward);
             if (viewZ <= basis.nearPlane) {
-                return null;
+                anyBehind = true;
+                continue;
             }
+            anyInFront = true;
             double ndcX = rel.dotProduct(basis.right) / (viewZ * basis.tanHalfFov * basis.aspect);
             double ndcY = rel.dotProduct(basis.up) / (viewZ * basis.tanHalfFov);
             double px = (ndcX * 0.5D + 0.5D) * width;
@@ -721,6 +815,14 @@ public class CloudVolumeRenderer {
             minY = Math.min(minY, py);
             maxX = Math.max(maxX, px);
             maxY = Math.max(maxY, py);
+        }
+        if (!anyInFront) {
+            // Every corner is behind the near plane: this is not a near-plane
+            // intersection and the volume cannot contribute a single pixel.
+            return ProjectionCull.EMPTY_RESULT;
+        }
+        if (anyBehind) {
+            return ProjectionCull.FULL_RESULT;
         }
         // A little margin for the depth discontinuity filtering in the composite.
         int x0 = (int) Math.floor(minX) - 8;
@@ -732,12 +834,12 @@ public class CloudVolumeRenderer {
         x1 = Math.min(x1, width);
         y1 = Math.min(y1, height);
         if (x1 <= x0 || y1 <= y0) {
-            return null;
+            return ProjectionCull.EMPTY_RESULT;
         }
         if (x0 == 0 && y0 == 0 && x1 == width && y1 == height) {
-            return null;
+            return ProjectionCull.FULL_RESULT;
         }
-        return new int[]{x0, y0, x1, y1};
+        return new ProjectionCull(ProjectionCull.RECT, new int[]{x0, y0, x1, y1});
     }
 
     // ------------------------------------------------------------------
@@ -756,6 +858,13 @@ public class CloudVolumeRenderer {
         GlStateManager.setActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL12.GL_TEXTURE_3D, this.volume.getFineTexture());
         program.set1i("densityTex", 1);
+
+        // Coarse max grid: lets the shader prove that a whole box of the volume
+        // is empty and jump over it, while still taking fine steps inside any
+        // box that may contain a thin cloud layer.
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE2);
+        GL11.glBindTexture(GL12.GL_TEXTURE_3D, this.volume.getMaxTexture());
+        program.set1i("densityMaxTex", 2);
 
         float celestial = world.getCelestialAngle(partialTicks);
         float sunAngle = celestial * (float) Math.PI * 2.0F;
@@ -785,6 +894,11 @@ public class CloudVolumeRenderer {
         program.set3f("cloudTint", cloudTint.x, cloudTint.y, cloudTint.z);
         program.set3f("volOrigin", volMin.x, volMin.y, volMin.z);
         program.set3f("volSize", volMax.x - volMin.x, volMax.y - volMin.y, volMax.z - volMin.z);
+        float maxCell = this.volume.getMaxCellBlocks();
+        program.set3f("maxCellBlocks", maxCell, maxCell, maxCell);
+        program.set3f("maxDim", this.volume.getMaxDimX(), this.volume.getMaxDimY(),
+                this.volume.getMaxDimZ());
+        program.set1f("fineCellBlocks", this.volume.getCellSize());
         program.set1f("tanHalfFov", basis.tanHalfFov);
         program.set1f("aspect", basis.aspect);
         program.set1f("nearPlane", basis.nearPlane);
@@ -820,6 +934,8 @@ public class CloudVolumeRenderer {
         GlStateManager.enableAlpha();
         GlStateManager.enableCull();
         CloudShaderProgram.stop();
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE2);
+        GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
         GlStateManager.setActiveTexture(GL13.GL_TEXTURE1);
         GL11.glBindTexture(GL12.GL_TEXTURE_3D, 0);
         GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);

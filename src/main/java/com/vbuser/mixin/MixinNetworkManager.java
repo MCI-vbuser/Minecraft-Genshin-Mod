@@ -99,8 +99,10 @@ public abstract class MixinNetworkManager {
             return;
         }
 
-        // Small single packets are passed through by inf$queueVanilla; bursts
-        // in either direction are aggregated.
+        // Explicit low-latency types (keepalive, movement, teleport) are
+        // passed through by inf$queueVanilla without being encoded; everything
+        // else joins the per-connection batch and is flushed at the end of the
+        // tick, which is what lets a burst of small packets aggregate.
         int queued;
         synchronized (this) {
             queued = inf$queueVanilla(packet);
@@ -153,6 +155,13 @@ public abstract class MixinNetworkManager {
 
     @Unique
     private int inf$queueVanilla(Packet<?> packet) {
+        // Explicit low-latency types are recognised before serialization, so
+        // they never pay for an encode that is then thrown away. If something
+        // is already pending, report "flush first" so the queued batches still
+        // leave before this packet on the vanilla path.
+        if (NetConfig.isVanillaDirect(packet.getClass().getSimpleName())) {
+            return this.inf$vanillaPending.isEmpty() ? 0 : -1;
+        }
         try {
             int id = EnumConnectionState.PLAY.getPacketId(this.inf$outboundDirection(), packet);
 
@@ -161,8 +170,19 @@ public abstract class MixinNetworkManager {
             try {
                 packet.writePacketData(data);
                 int length = data.readableBytes();
-                if (length < 0 || length > NetConfig.VANILLA_MAX_RAW_BYTES) {
+                if (length < 0) {
                     return -1;
+                }
+                int entryBytes = NetConfig.vanillaEntryBytes(id, length);
+                if (NetConfig.vanillaBundleBytes(1, entryBytes) > NetConfig.VANILLA_MAX_RAW_BYTES) {
+                    // Cannot fit even alone: hand it to the ordered vanilla path.
+                    return -1;
+                }
+                if (!this.inf$vanillaPending.isEmpty()
+                        && NetConfig.vanillaBundleBytes(this.inf$vanillaPending.size() + 1,
+                        this.inf$vanillaBytes + entryBytes) > NetConfig.VANILLA_MAX_RAW_BYTES) {
+                    // Split before the peer's whole-batch limit is crossed.
+                    inf$flushVanilla();
                 }
                 bytes = new byte[length];
                 data.readBytes(bytes);
@@ -170,15 +190,8 @@ public abstract class MixinNetworkManager {
                 data.release();
             }
 
-            // A lone small packet would pay more carrier overhead than it
-            // saves. Let it go out immediately on the vanilla path.
-            if (this.inf$vanillaPending.isEmpty()
-                    && bytes.length < NetConfig.VANILLA_SMALL_PACKET_BYTES) {
-                return 0;
-            }
-
             this.inf$vanillaPending.add(new VanillaPendingPacket(id, bytes, packet));
-            this.inf$vanillaBytes += VarInt.sizeOf(id) + VarInt.sizeOf(bytes.length) + bytes.length;
+            this.inf$vanillaBytes += NetConfig.vanillaEntryBytes(id, bytes.length);
 
             if (this.inf$vanillaBytes >= NetConfig.VANILLA_MAX_BYTES
                     || this.inf$vanillaPending.size() >= NetConfig.VANILLA_MAX_PACKETS) {
@@ -202,7 +215,7 @@ public abstract class MixinNetworkManager {
         this.inf$vanillaBytes = 0;
 
         if (toSend.size() == 1
-                && toSend.get(0).data.length < NetConfig.VANILLA_SMALL_PACKET_BYTES
+                && toSend.get(0).data.length < NetConfig.VANILLA_DIRECT_SMALL_BYTES
                 && toSend.get(0).original != null) {
             inf$sendDirect(toSend.get(0).original);
             return;
@@ -219,7 +232,16 @@ public abstract class MixinNetworkManager {
                 raw.writeBytes(pending.data);
             }
 
-            byte[] bytes = new byte[raw.readableBytes()];
+            int rawBytes = raw.readableBytes();
+            if (rawBytes > NetConfig.VANILLA_MAX_RAW_BYTES) {
+                // The queue only ever closes a batch under this limit; if a
+                // future change breaks that, do not hand the peer a packet it
+                // is guaranteed to reject.
+                INF_LOGGER.error("Refusing to send a {} byte vanilla bundle (limit {})",
+                        rawBytes, NetConfig.VANILLA_MAX_RAW_BYTES);
+                return;
+            }
+            byte[] bytes = new byte[rawBytes];
             raw.readBytes(bytes);
             // INF_LOGGER.debug("Vanilla bundle: {} packets, {} raw bytes", toSend.size(), bytes.length);
             com.vbuser.genshin.tool.network.NetworkManager.sendVanillaBundle(

@@ -39,6 +39,10 @@ public final class ExtendedChunkSync {
     private static final int[] EMPTY_STATES = new int[0];
 
     public static List<SPacketExtendedSection> buildSectionPackets(Chunk chunk) {
+        return buildSectionPackets(chunk, 0);
+    }
+
+    public static List<SPacketExtendedSection> buildSectionPackets(Chunk chunk, int epoch) {
         ExtendedColumn column = ColumnManager.getIfPresent(chunk);
         if (column == null || column.isEmpty()) {
             return Collections.emptyList();
@@ -65,17 +69,44 @@ public final class ExtendedChunkSync {
                         ExtendedColumn.indexZ(index)));
                 cursor++;
             }
-            packets.add(new SPacketExtendedSection(chunk.x, chunk.z, sectionY, offsets, states));
+            packets.add(new SPacketExtendedSection(chunk.x, chunk.z, sectionY, offsets, states,
+                    SPacketExtendedSection.MODE_NONE, epoch));
         }
         return packets;
     }
 
     /** Queue the extended sections and tile entities of one chunk. */
     public static void sendChunk(EntityPlayerMP player, Chunk chunk) {
-        for (SPacketExtendedSection packet : buildSectionPackets(chunk)) {
-            ExtendedPacketQueue.sendSection(player, packet);
+        sendChunk(java.util.Collections.singletonList(player), chunk);
+    }
+
+    /**
+     * Sends one chunk to every player that is watching it.
+     *
+     * <p>The section payloads are built once and shared: {@link
+     * ExtendedPacketQueue#sendSection} copies the packet and stamps the
+     * per-player session, so each player still gets its own header. Building the
+     * 8 KiB offset array and the 16 KiB state array per player used to turn a
+     * chunk send into {@code players * sections * 24 KiB} of garbage.</p>
+     */
+    public static void sendChunk(java.util.List<EntityPlayerMP> players, Chunk chunk) {
+        if (players == null || players.isEmpty()) {
+            return;
         }
-        sendTileEntities(player, chunk);
+        List<SPacketExtendedSection> packets = buildSectionPackets(chunk);
+        for (EntityPlayerMP player : players) {
+            if (player == null) {
+                continue;
+            }
+            for (SPacketExtendedSection packet : packets) {
+                ExtendedPacketQueue.sendSection(player, packet);
+            }
+            sendTileEntities(player, chunk);
+        }
+    }
+
+    public static void sendTileEntities(EntityPlayerMP player, Chunk chunk) {
+        sendTileEntities(player, chunk, ExtendedPacketQueue.sessionEpoch(player));
     }
 
     /**
@@ -86,19 +117,20 @@ public final class ExtendedChunkSync {
      * the chunk that vanilla does not know about.</p>
      */
     public static void resyncChunk(EntityPlayerMP player, Chunk chunk) {
+        int epoch = ExtendedPacketQueue.sessionEpoch(player);
         ExtendedPacketQueue.sendSection(player, new SPacketExtendedSection(
                 chunk.x, chunk.z, 0, EMPTY_OFFSETS, EMPTY_STATES,
-                SPacketExtendedSection.MODE_RESET));
-        for (SPacketExtendedSection packet : buildSectionPackets(chunk)) {
+                SPacketExtendedSection.MODE_RESET, epoch));
+        for (SPacketExtendedSection packet : buildSectionPackets(chunk, epoch)) {
             ExtendedPacketQueue.sendSection(player, packet);
         }
         ExtendedPacketQueue.sendSection(player, new SPacketExtendedSection(
                 chunk.x, chunk.z, 0, EMPTY_OFFSETS, EMPTY_STATES,
-                SPacketExtendedSection.MODE_FINISH));
-        sendTileEntities(player, chunk);
+                SPacketExtendedSection.MODE_FINISH, epoch));
+        sendTileEntities(player, chunk, epoch);
     }
 
-    public static void sendTileEntities(EntityPlayerMP player, Chunk chunk) {
+    public static void sendTileEntities(EntityPlayerMP player, Chunk chunk, int epoch) {
         for (TileEntity tileEntity : chunk.getTileEntityMap().values()) {
             if (tileEntity.isInvalid()) {
                 continue;
@@ -109,7 +141,7 @@ public final class ExtendedChunkSync {
             }
             NBTTagCompound nbt = tileEntity.getUpdateTag();
             ExtendedPacketQueue.sendTileEntity(
-                    player, new SPacketExtendedTileEntity(pos, nbt));
+                    player, new SPacketExtendedTileEntity(pos, nbt, epoch));
         }
     }
 

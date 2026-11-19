@@ -9,12 +9,13 @@ import io.netty.buffer.Unpooled;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * Per-target packet aggregation queue.
@@ -23,6 +24,15 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * packet objects are queued. A batch is flushed on size/count limits or the
  * configured delay. A non-aggregatable packet flushes the pending queue first
  * so packet ordering is preserved.</p>
+ *
+ * <p>One queue entry exists per target for the whole lifetime of the connection
+ * and is only dropped by {@link #remove(Object)}. Removing an empty entry from
+ * the map while a producer already held it was a lost-packet window: the
+ * producer appended to an object the tick could no longer find. A single
+ * drainer per entry now also serializes the actual sends, so two flushes from
+ * different threads (the server tick and a background media transfer) can no
+ * longer overtake each other, and the never-aggregate packets go through the
+ * same ordering boundary instead of jumping the queue.</p>
  */
 public class PacketQueueManager {
 
@@ -31,11 +41,29 @@ public class PacketQueueManager {
     private final Map<Object, QueueEntry> queues = new ConcurrentHashMap<>();
     private final NetworkSender sender;
 
+    /** One closed batch, ready to be written to the network. */
+    private static final class Batch {
+        final List<ModPacket> packets;
+        final boolean immediate;
+
+        Batch(List<ModPacket> packets, boolean immediate) {
+            this.packets = packets;
+            this.immediate = immediate;
+        }
+    }
+
     private static final class QueueEntry {
-        final Queue<ModPacket> packets = new ConcurrentLinkedQueue<>();
-        int totalBytes;
-        int packetCount;
+        /** Closed batches, FIFO. Guarded by {@code this}. */
+        final Deque<Batch> ready = new ArrayDeque<>();
+        /** The batch that is still collecting packets. Guarded by {@code this}. */
+        final List<ModPacket> open = new ArrayList<>();
+        int openBytes;
+        int openCount;
         long firstTimestamp;
+        /** True while one thread is inside the send loop. Guarded by {@code this}. */
+        boolean draining;
+        /** Set by {@link #remove(Object)}; late producers are dropped. */
+        boolean removed;
     }
 
     public PacketQueueManager(NetworkSender sender) {
@@ -47,37 +75,95 @@ public class PacketQueueManager {
             return;
         }
 
-        if (packet.neverAggregate()) {
-            // Preserve ordering: everything queued before this packet must go
-            // out before the immediate packet.
-            flush(target);
-            try {
-                sender.sendImmediately(target, packet);
-            } catch (Throwable t) {
-                LOGGER.error("Failed to send immediate packet {}", packet.getClass().getName(), t);
+        int size = 0;
+        if (!packet.neverAggregate()) {
+            size = encodedSize(packet);
+            if (size < 0) {
+                return;
             }
-            return;
         }
 
-        int size = encodedSize(packet);
-        if (size < 0) {
-            return;
+        QueueEntry entry = queues.get(target);
+        if (entry == null) {
+            entry = queues.computeIfAbsent(target, key -> new QueueEntry());
         }
 
-        QueueEntry entry = queues.computeIfAbsent(target, key -> new QueueEntry());
-        boolean full;
         synchronized (entry) {
-            entry.packets.add(packet);
-            entry.totalBytes += size;
-            entry.packetCount++;
-            if (entry.firstTimestamp == 0) {
-                entry.firstTimestamp = System.currentTimeMillis();
+            if (entry.removed) {
+                return;
             }
-            full = entry.totalBytes >= NetConfig.AGGREGATE_MAX_BYTES
-                    || entry.packetCount >= NetConfig.AGGREGATE_MAX_PACKETS;
+            if (packet.neverAggregate()) {
+                // Preserve ordering: everything queued before this packet goes
+                // out before the immediate packet, through the same drainer.
+                closeOpen(entry);
+                entry.ready.add(new Batch(Collections.singletonList(packet), true));
+            } else {
+                entry.open.add(packet);
+                entry.openBytes += size;
+                entry.openCount++;
+                if (entry.firstTimestamp == 0) {
+                    entry.firstTimestamp = System.currentTimeMillis();
+                }
+                if (entry.openBytes >= NetConfig.AGGREGATE_MAX_BYTES
+                        || entry.openCount >= NetConfig.AGGREGATE_MAX_PACKETS) {
+                    closeOpen(entry);
+                }
+            }
         }
-        if (full) {
-            flush(target);
+        drain(target, entry);
+    }
+
+    /**
+     * Close the open batch and hand it to the drainer. Also used by the tick
+     * when the batch deadline expired.
+     */
+    private static void closeOpen(QueueEntry entry) {
+        if (entry.open.isEmpty()) {
+            entry.firstTimestamp = 0;
+            return;
+        }
+        entry.ready.add(new Batch(new ArrayList<>(entry.open), false));
+        entry.open.clear();
+        entry.openBytes = 0;
+        entry.openCount = 0;
+        entry.firstTimestamp = 0;
+    }
+
+    /**
+     * Single-consumer send loop. Only one thread may be inside at a time, so
+     * the batches leave in FIFO order even when several threads flush.
+     */
+    private void drain(Object target, QueueEntry entry) {
+        synchronized (entry) {
+            if (entry.draining) {
+                return;
+            }
+            entry.draining = true;
+        }
+        while (true) {
+            Batch batch;
+            synchronized (entry) {
+                batch = entry.ready.poll();
+                if (batch == null) {
+                    // Releasing the flag under the same lock is what makes a
+                    // producer that appends right now re-trigger a drain.
+                    entry.draining = false;
+                    return;
+                }
+            }
+            dispatch(target, batch);
+        }
+    }
+
+    private void dispatch(Object target, Batch batch) {
+        try {
+            if (batch.immediate) {
+                this.sender.sendImmediately(target, batch.packets.get(0));
+            } else {
+                this.sender.send(target, new AggregatedPacket(batch.packets));
+            }
+        } catch (Throwable t) {
+            LOGGER.error("Failed to flush {} aggregated packets", batch.packets.size(), t);
         }
     }
 
@@ -86,30 +172,13 @@ public class PacketQueueManager {
         if (entry == null) {
             return;
         }
-
-        List<ModPacket> toSend;
         synchronized (entry) {
-            if (entry.packets.isEmpty()) {
+            if (entry.removed) {
                 return;
             }
-            toSend = new ArrayList<>(entry.packets);
-            entry.packets.clear();
-            entry.totalBytes = 0;
-            entry.packetCount = 0;
-            entry.firstTimestamp = 0;
+            closeOpen(entry);
         }
-
-        try {
-            sender.send(target, new AggregatedPacket(toSend));
-        } catch (Throwable t) {
-            LOGGER.error("Failed to flush {} aggregated packets to {}", toSend.size(), target, t);
-        }
-
-        synchronized (entry) {
-            if (entry.packets.isEmpty()) {
-                queues.remove(target, entry);
-            }
-        }
+        drain(target, entry);
     }
 
     public void tick() {
@@ -118,31 +187,57 @@ public class PacketQueueManager {
             QueueEntry entry = mapEntry.getValue();
             boolean due;
             synchronized (entry) {
-                due = entry.firstTimestamp != 0
+                due = !entry.removed
+                        && entry.firstTimestamp != 0
                         && now - entry.firstTimestamp >= NetConfig.AGGREGATE_MAX_DELAY_MS;
+                if (due) {
+                    closeOpen(entry);
+                }
             }
             if (due) {
-                flush(mapEntry.getKey());
+                drain(mapEntry.getKey(), entry);
             }
         }
     }
 
     public void flushAll() {
-        for (Object target : new ArrayList<>(queues.keySet())) {
-            flush(target);
+        for (Map.Entry<Object, QueueEntry> mapEntry : new ArrayList<>(queues.entrySet())) {
+            QueueEntry entry = mapEntry.getValue();
+            synchronized (entry) {
+                closeOpen(entry);
+            }
+            drain(mapEntry.getKey(), entry);
         }
     }
 
     /**
-     * Flush and forget a target (used on disconnect/logout).
+     * Flush and forget a target (used on disconnect/logout). The entry stays
+     * reachable to producers that already hold it, but it is marked removed so
+     * nothing new is accepted.
      */
     public void remove(Object target) {
-        flush(target);
-        queues.remove(target);
+        QueueEntry entry = queues.remove(target);
+        if (entry == null) {
+            return;
+        }
+        synchronized (entry) {
+            entry.removed = true;
+            closeOpen(entry);
+        }
+        drain(target, entry);
     }
 
+    /** Targets with work still waiting; the connection itself stays cached. */
     public int queuedTargets() {
-        return queues.size();
+        int count = 0;
+        for (QueueEntry entry : queues.values()) {
+            synchronized (entry) {
+                if (!entry.open.isEmpty() || !entry.ready.isEmpty()) {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private int encodedSize(ModPacket packet) {

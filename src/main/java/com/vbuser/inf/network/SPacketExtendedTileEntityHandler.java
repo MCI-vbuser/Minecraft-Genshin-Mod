@@ -18,8 +18,10 @@ public class SPacketExtendedTileEntityHandler
     @Override
     public IMessage onMessage(SPacketExtendedTileEntity msg, MessageContext ctx) {
         Minecraft mc = Minecraft.getMinecraft();
+        final net.minecraft.world.World packetWorld = mc.world;
         mc.addScheduledTask(() -> {
-            if (mc.world == null) return;
+            if (mc.world == null || (packetWorld != null && mc.world != packetWorld)) return;
+            if (!ExtendedSyncSession.accept(msg.getEpoch(), msg.getDimension(), mc.world)) return;
             BlockPos pos = msg.getPos();
             if (msg.getNbt() == null) return;
 
@@ -40,7 +42,7 @@ public class SPacketExtendedTileEntityHandler
                 mc.world.setTileEntity(pos, te);
             }
 
-            te.readFromNBT(msg.getNbt());
+            te.handleUpdateTag(msg.getNbt());
         });
         return null;
     }

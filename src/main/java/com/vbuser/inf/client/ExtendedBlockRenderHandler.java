@@ -2,11 +2,10 @@ package com.vbuser.inf.client;
 
 import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.InfiniteHeight;
+import com.vbuser.inf.SectionKey;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
 import com.vbuser.inf.light.LightRenderHook;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BlockRendererDispatcher;
@@ -38,8 +37,10 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Renders the extended sections from baked vertex buffers, the same way vanilla
@@ -72,8 +73,8 @@ public class ExtendedBlockRenderHandler {
     /** Cleanup walks every mesh, so it runs every N frames instead of every frame. */
     private static final int CLEANUP_INTERVAL = 20;
 
-    private static final Map<Long, SectionMesh> MESHES = new HashMap<>();
-    private static final LongSet DIRTY = new LongOpenHashSet();
+    private static final Map<SectionKey, SectionMesh> MESHES = new HashMap<>();
+    private static final Set<SectionKey> DIRTY = new HashSet<>();
 
     private static final List<SectionMesh> VISIBLE = new ArrayList<>();
     private static final Comparator<SectionMesh> FAR_FIRST =
@@ -111,7 +112,7 @@ public class ExtendedBlockRenderHandler {
     }
 
     public static void markSectionDirty(int chunkX, int chunkZ, int sectionY) {
-        DIRTY.add(key(chunkX, chunkZ, sectionY));
+        DIRTY.add(SectionKey.of(chunkX, sectionY, chunkZ));
     }
 
     /**
@@ -121,7 +122,7 @@ public class ExtendedBlockRenderHandler {
      * cleanup notices that the column lost them.
      */
     public static void clearChunk(int chunkX, int chunkZ) {
-        java.util.Iterator<Map.Entry<Long, SectionMesh>> iterator = MESHES.entrySet().iterator();
+        java.util.Iterator<Map.Entry<SectionKey, SectionMesh>> iterator = MESHES.entrySet().iterator();
         while (iterator.hasNext()) {
             SectionMesh mesh = iterator.next().getValue();
             if (mesh.chunkX == chunkX && mesh.chunkZ == chunkZ) {
@@ -131,9 +132,9 @@ public class ExtendedBlockRenderHandler {
         }
     }
 
-    private static long key(int chunkX, int chunkZ, int sectionY) {
-        return ((long) (chunkX & 0x3FFFFFF) << 38) | ((long) (chunkZ & 0x3FFFFFF) << 12)
-                | (sectionY & 0xFFF);
+    /** A section key never collides: full chunk column plus the full section Y. */
+    private static SectionKey key(int chunkX, int chunkZ, int sectionY) {
+        return SectionKey.of(chunkX, sectionY, chunkZ);
     }
 
     /** Leaving a world / changing dimension: the GL buffers belong to that world. */
@@ -212,9 +213,8 @@ public class ExtendedBlockRenderHandler {
                     // Vertical distance does not cull: looking straight down at a
                     // build far below must still draw it. The frustum test below
                     // is what rejects off-screen sections.
-                    long key = key(cx, cz, sectionY);
-                    SectionMesh mesh = MESHES.get(key);
-                    if (mesh == null) {
+                    SectionKey key = key(cx, cz, sectionY);
+                    SectionMesh mesh = MESHES.get(key);                    if (mesh == null) {
                         mesh = new SectionMesh(cx, cz, sectionY);
                         MESHES.put(key, mesh);
                         DIRTY.add(key);

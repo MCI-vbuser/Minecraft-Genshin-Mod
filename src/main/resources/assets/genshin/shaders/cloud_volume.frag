@@ -12,11 +12,15 @@
 //     distance (this is the LOD: no visible alias shimmer far away, full
 //     detail up close),
 //   * four density taps towards the sun give self shadowing,
-//   * geometric step spacing spends samples near the camera.
+//   * a coarse max-density grid skips provably empty boxes in one step while
+//     the surface hunt inside a possibly occupied box never steps over a fine
+//     texel, so a thin layer is neither missed nor integrated with a long step.
 //
 
 uniform sampler2D depthTex;
 uniform sampler3D densityTex;
+// Coarse max-density grid: MAX_GROUP fine texels per texel, one byte each.
+uniform sampler3D densityMaxTex;
 
 uniform vec3 cameraPos;
 uniform vec3 camForward;
@@ -30,6 +34,11 @@ uniform vec3 cloudTint;
 
 uniform vec3 volOrigin;
 uniform vec3 volSize;
+// Geometry of the coarse grid: texel edge in blocks and grid size in texels.
+uniform vec3 maxCellBlocks;
+uniform vec3 maxDim;
+// Size of one fine texel in blocks (the volume's LOD cell size).
+uniform float fineCellBlocks;
 
 uniform float tanHalfFov;
 uniform float aspect;
@@ -119,6 +128,29 @@ float sampleField(vec3 p) {
         return 0.0;
     }
     return texture3D(densityTex, uvw).r;
+}
+
+// Maximum block-field density inside the coarse box that contains p. A value
+// of exactly 0 proves that the whole box is empty, which is what makes the
+// empty-space skip below exact instead of a guess.
+float sampleCellMax(vec3 p) {
+    vec3 uvw = (p - volOrigin) / (maxCellBlocks * maxDim);
+    if (min(min(uvw.x, uvw.y), uvw.z) < 0.0 || max(max(uvw.x, uvw.y), uvw.z) > 1.0) {
+        return 0.0;
+    }
+    return texture3D(densityMaxTex, uvw).r;
+}
+
+// Distance along rd from p to the far face of the coarse box containing p.
+// The ray only ever jumps to a box boundary, so the next density sample is
+// still taken inside the next box and no cloud can hide behind the jump.
+float coarseCellExit(vec3 p, vec3 rd, vec3 safeRd) {
+    vec3 local = (p - volOrigin) / maxCellBlocks;
+    vec3 cell = floor(local);
+    vec3 face = cell + step(vec3(0.0), rd);
+    vec3 boundary = face * maxCellBlocks + volOrigin;
+    vec3 dist = (boundary - p) / safeRd;
+    return max(min(min(dist.x, dist.y), dist.z), 0.0);
 }
 
 // Detailed density: the block field plus noise erosion, faded with distance.
@@ -235,11 +267,17 @@ void main() {
     }
 
     float span = tEnd - tStart;
-    // Adaptive march: a fixed fine step inside the cloud resolves the surface
-    // crossing (a uniform geometric spacing grows to ~20 blocks far away, which
-    // quantises a grazing silhouette into visible stairs), while empty space is
-    // crossed with a growing step so a cloud 280 blocks away is still reached.
+    // Spacing used once the surface has been found. This is the quality knob:
+    // it trades sampling cost for surface smoothness, not for thin layer
+    // visibility, because the hunt below never steps over a fine texel.
     float dtFine = clamp(span * 0.5 / float(stepCount), 0.6, 4.0);
+    // Step while looking for the surface inside a box that may contain cloud:
+    // at most one fine texel, so a one texel thick layer can not fall between
+    // two samples. With a coarse LOD cell the texel is larger, hence the max().
+    float huntStep = max(fineCellBlocks, min(dtFine, 1.0));
+    // Only real density samples are budgeted; skipping a proven empty box is a
+    // single fetch and must not consume the ray's quality budget.
+    int sampleBudget = stepCount * 2;
 
     // Dither the ray start per pixel. Interleaved gradient noise: continuous like
     // the hash (no dot lattice) but with a smooth spatial falloff, so neighbouring
@@ -248,8 +286,10 @@ void main() {
     // must be avoided, because it decorrelates the quadrature and turns the cloud
     // into grain.
     float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-    float t = tStart + jitter * dtFine;
-    float stepLen = dtFine;
+    // Jitter by the actual surface-hunt interval. Using the larger interior
+    // integration step here can skip a one-texel layer at the volume boundary.
+    float t = tStart + jitter * huntStep;
+    float stepLen = huntStep;
 
     float transmittance = 1.0;
     vec3 radiance = vec3(0.0);
@@ -262,12 +302,26 @@ void main() {
     // The bound must be at least the largest stepCount the renderer can send,
     // otherwise the tail of the ray is never marched and far clouds would end
     // in a hard line.
-    for (int i = 0; i < 96; i++) {
-        if (i >= stepCount || t >= tEnd || transmittance < 0.02) {
+    int samples = 0;
+    bool inCloud = false;
+    for (int i = 0; i < 256; i++) {
+        if (t >= tEnd || transmittance < 0.02 || samples >= sampleBudget) {
             break;
         }
         vec3 p = cameraPos + rd * t;
+        // Probing is only useful while hunting for the surface; inside a cloud
+        // the fine step and the transmittance bound the work already.
+        if (!inCloud && sampleCellMax(p) <= 0.0) {
+            // The coarse max proves this whole box is empty: jump straight to
+            // its far face. Nothing can be stepped over, because the next
+            // sample is still inside the next box.
+            t += max(coarseCellExit(p, rd, safeR), 1.0e-3) + 1.0e-3;
+            stepLen = dtFine;
+            continue;
+        }
+        stepLen = inCloud ? dtFine : huntStep;
         float dens = cloudDensity(p, t);
+        samples++;
         if (dens > 0.004) {
             float sigma = extinction * dens;
             float stepT = exp(-sigma * stepLen);
@@ -276,12 +330,11 @@ void main() {
             if (hitT < 0.0 && transmittance < 0.5) {
                 hitT = t;
             }
-            stepLen = dtFine;
-            t += stepLen;
+            inCloud = true;
         } else {
-            stepLen = min(stepLen * 1.9, 16.0);
-            t += stepLen;
+            inCloud = false;
         }
+        t += stepLen;
     }
 
     float alpha = 1.0 - transmittance;

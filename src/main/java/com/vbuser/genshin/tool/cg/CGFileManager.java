@@ -6,14 +6,19 @@ import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Owns the cg (video) asset directory and every path that touches it.
@@ -107,6 +112,95 @@ public class CGFileManager {
         return isValidName(fileName) && resolve(fileName).isFile();
     }
 
+    // ------------------------------------------------------------- content version
+
+    private static final Map<String, CachedFingerprint> FINGERPRINTS = new ConcurrentHashMap<>();
+    private static final int MAX_CACHED_FINGERPRINTS = 256;
+
+    private static final class CachedFingerprint {
+        final long length;
+        final long lastModified;
+        final String value;
+
+        CachedFingerprint(long length, long lastModified, String value) {
+            this.length = length;
+            this.lastModified = lastModified;
+            this.value = value;
+        }
+    }
+
+    /**
+     * Content version of a cg file: its length plus the SHA-256 of its bytes
+     * ({@code "<length>-<hex digest>"}).
+     *
+     * <p>The value is cached per path/length/modification time, so playing the same file
+     * twice does not hash it twice. Returns {@code null} when the file is missing or cannot
+     * be read, which callers treat as "no usable local copy".</p>
+     */
+    public static String fingerprint(File file) {
+        if (file == null || !file.isFile()) {
+            return null;
+        }
+        String path = file.getAbsolutePath();
+        long length = file.length();
+        long lastModified = file.lastModified();
+        CachedFingerprint cached = FINGERPRINTS.get(path);
+        if (cached != null && cached.length == length && cached.lastModified == lastModified) {
+            return cached.value;
+        }
+        String value = computeFingerprint(file, length);
+        if (value == null) {
+            return null;
+        }
+        if (FINGERPRINTS.size() >= MAX_CACHED_FINGERPRINTS) {
+            FINGERPRINTS.clear();
+        }
+        FINGERPRINTS.put(path, new CachedFingerprint(length, lastModified, value));
+        return value;
+    }
+
+    /** Content version of a cg file inside the cg directory, or {@code null}. */
+    public static String fingerprint(String fileName) {
+        if (!isValidName(fileName)) {
+            return null;
+        }
+        try {
+            return fingerprint(resolve(fileName));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Drops the cached version of a file after it was written or replaced. */
+    public static void invalidateFingerprint(File file) {
+        if (file != null) {
+            FINGERPRINTS.remove(file.getAbsolutePath());
+        }
+    }
+
+    private static String computeFingerprint(File file, long length) {
+        try (InputStream input = new BufferedInputStream(new FileInputStream(file), 64 * 1024)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+            return length + "-" + toHex(digest.digest());
+        } catch (IOException | java.security.NoSuchAlgorithmException e) {
+            return null;
+        }
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (byte value : bytes) {
+            builder.append(Character.forDigit((value >> 4) & 0xF, 16));
+            builder.append(Character.forDigit(value & 0xF, 16));
+        }
+        return builder.toString();
+    }
+
     /** All cg file names, relative to the cg directory and sorted. */
     public static List<String> list() {
         File dir = getCGDir();
@@ -124,7 +218,8 @@ public class CGFileManager {
         for (File child : children) {
             if (child.isDirectory()) {
                 collect(root, child, out);
-            } else {
+            } else if (!child.getName().endsWith(CGProtocol.PART_SUFFIX)) {
+                // Partial downloads are not playable cg resources.
                 out.add(root.toPath().relativize(child.toPath()).toString().replace('\\', '/'));
             }
         }
@@ -146,5 +241,7 @@ public class CGFileManager {
         try (InputStream in = stream) {
             Files.copy(in, target.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
+        // A hand-installed override replaces whatever was there before.
+        invalidateFingerprint(target);
     }
 }

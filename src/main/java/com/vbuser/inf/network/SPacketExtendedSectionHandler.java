@@ -1,5 +1,6 @@
 package com.vbuser.inf.network;
 
+import com.vbuser.genshin.client.renderer.CloudVolumeTracker;
 import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
@@ -29,16 +30,20 @@ public class SPacketExtendedSectionHandler
     @Override
     public IMessage onMessage(SPacketExtendedSection msg, MessageContext ctx) {
         Minecraft mc = Minecraft.getMinecraft();
+        final World packetWorld = mc.world;
         mc.addScheduledTask(() -> {
             World world = mc.world;
-            if (world == null) {
+            if (world == null || (packetWorld != null && world != packetWorld)) {
+                // The packet arrived before a dimension switch but its main
+                // thread task ran afterwards. Never import it into the new world.
+                return;
+            }
+            if (!ExtendedSyncSession.accept(msg.getEpoch(), msg.getDimension(), world)) {
                 return;
             }
 
             Chunk chunk = world.getChunkFromChunkCoords(msg.getChunkX(), msg.getChunkZ());
             if (chunk instanceof EmptyChunk) {
-                // The chunk itself has not arrived yet (or was unloaded in the
-                // meantime); the send path ships this section again with it.
                 return;
             }
             ExtendedColumn column = ColumnManager.get(chunk);
@@ -46,9 +51,6 @@ public class SPacketExtendedSectionHandler
             byte mode = msg.getMode();
 
             if (mode == SPacketExtendedSection.MODE_RESET) {
-                // Whole-chunk resync starts here: throw away the previous copy
-                // (blocks, light and baked meshes) so nothing that the new base
-                // world removed can survive.
                 ExtendedBlockRenderHandler.clearChunk(msg.getChunkX(), msg.getChunkZ());
                 column.clear();
             }
@@ -60,8 +62,6 @@ public class SPacketExtendedSectionHandler
             int baseY = msg.getSectionY() << 4;
 
             if (offsets.length > 0) {
-                // Straight into the section arrays: a vanilla style per block
-                // setBlockState would fire 4096 block callbacks and light checks.
                 light.setSuspended(true);
                 try {
                     for (int i = 0; i < offsets.length; i++) {
@@ -79,20 +79,24 @@ public class SPacketExtendedSectionHandler
             }
 
             if (mode == SPacketExtendedSection.MODE_FINISH) {
-                // The column is complete again: re-derive the top map and all
-                // light values from scratch instead of trusting the partial
-                // state accumulated while the section packets arrived.
                 removeStaleExtendedTileEntities(chunk);
                 light.onChunkLoaded(world, false);
+                // MODE_FINISH is only sent by a whole-column resync. Sections
+                // dropped by the new snapshot have to leave the cloud index too;
+                // the re-read is limited to the extended sections.
+                CloudVolumeTracker.onClientExtendedResync(world, chunk);
                 return;
             }
             if (mode == SPacketExtendedSection.MODE_RESET) {
-                // Marker packet only; the section packets that follow do the work.
                 return;
             }
 
             light.rebuildTop(world);
             light.onSectionCreated(world, msg.getSectionY());
+            // The extended sections travel on their own channel and usually
+            // arrive after the vanilla chunk data was already scanned, so the
+            // cloud index has to re-read this one section.
+            CloudVolumeTracker.onClientExtendedSectionData(world, chunk, msg.getSectionY());
         });
         return null;
     }

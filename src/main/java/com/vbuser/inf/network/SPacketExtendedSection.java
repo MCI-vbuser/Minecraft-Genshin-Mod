@@ -1,5 +1,6 @@
 package com.vbuser.inf.network;
 
+import com.vbuser.inf.HeightConstants;
 import io.netty.buffer.ByteBuf;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
 
@@ -16,6 +17,8 @@ import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
  * same values without 4 KiB of stale arrays per section.</p>
  */
 public class SPacketExtendedSection implements IMessage {
+
+    public static final int MAX_BLOCKS = 16 * 16 * 16;
 
     /**
      * Regular incremental update: apply the listed blocks.
@@ -41,6 +44,15 @@ public class SPacketExtendedSection implements IMessage {
     private short[] offsets = new short[0];
     private int[] states = new int[0];
     private byte mode = MODE_NONE;
+    /**
+     * Session of the world this snapshot was taken in. The client ignores a
+     * packet whose session is older than the world it is currently in, which
+     * keeps a backlog of the previous world from being imported into a chunk
+     * that happens to sit at the same coordinates.
+     */
+    private int epoch;
+    /** Dimension the snapshot was built in; checked again by the client. */
+    private int dimension;
 
     public SPacketExtendedSection() {}
 
@@ -50,12 +62,18 @@ public class SPacketExtendedSection implements IMessage {
 
     public SPacketExtendedSection(int chunkX, int chunkZ, int sectionY,
                                   short[] offsets, int[] states, byte mode) {
+        this(chunkX, chunkZ, sectionY, offsets, states, mode, 0);
+    }
+
+    public SPacketExtendedSection(int chunkX, int chunkZ, int sectionY,
+                                  short[] offsets, int[] states, byte mode, int epoch) {
         this.chunkX = chunkX;
         this.chunkZ = chunkZ;
         this.sectionY = sectionY;
         this.offsets = offsets;
         this.states = states;
         this.mode = mode;
+        this.epoch = epoch;
     }
 
     public int getChunkX() { return chunkX; }
@@ -64,24 +82,41 @@ public class SPacketExtendedSection implements IMessage {
     public short[] getOffsets() { return offsets; }
     public int[] getStates() { return states; }
     public byte getMode() { return mode; }
+    public int getEpoch() { return epoch; }
+    public int getDimension() { return dimension; }
+    public void setEpoch(int epoch) { this.epoch = epoch; }
+    public void setDimension(int dimension) { this.dimension = dimension; }
 
     @Override
     public void fromBytes(ByteBuf buf) {
+        if (buf.readableBytes() < 16) {
+            throw new IllegalArgumentException("Truncated extended section header");
+        }
         this.chunkX = buf.readInt();
         this.chunkZ = buf.readInt();
         this.sectionY = buf.readInt();
+        if (this.sectionY < (HeightConstants.MIN_Y >> 4)
+                || this.sectionY > (HeightConstants.MAX_Y >> 4)) {
+            throw new IllegalArgumentException("Extended section Y is outside the block coordinate range");
+        }
         int count = buf.readInt();
+        if (count < 0 || count > MAX_BLOCKS || buf.readableBytes() < count * 6) {
+            throw new IllegalArgumentException("Invalid extended section block count: " + count);
+        }
         this.offsets = new short[count];
         this.states = new int[count];
         for (int i = 0; i < count; i++) {
             this.offsets[i] = buf.readShort();
             this.states[i] = buf.readInt();
         }
-        // Added after the first release. Older senders simply stop after the
-        // block list, so a missing trailing byte means MODE_NONE; older
-        // receivers ignore the extra byte. This keeps the packet usable in
-        // both directions without a protocol version handshake.
+        // Optional trailing fields retain compatibility with earlier senders.
+        // Check the complete field width, not merely one readable byte.
         this.mode = buf.isReadable() ? buf.readByte() : MODE_NONE;
+        if (this.mode != MODE_NONE && this.mode != MODE_RESET && this.mode != MODE_FINISH) {
+            throw new IllegalArgumentException("Unknown extended section mode: " + this.mode);
+        }
+        this.epoch = buf.isReadable(4) ? buf.readInt() : 0;
+        this.dimension = buf.isReadable(4) ? buf.readInt() : 0;
     }
 
     @Override
@@ -95,5 +130,7 @@ public class SPacketExtendedSection implements IMessage {
             buf.writeInt(this.states[i]);
         }
         buf.writeByte(this.mode);
+        buf.writeInt(this.epoch);
+        buf.writeInt(this.dimension);
     }
 }

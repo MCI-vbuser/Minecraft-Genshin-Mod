@@ -215,6 +215,9 @@ public abstract class MixinWorld implements ExtendedWorldLight {
             int dx = Math.abs(mp.chunkCoordX - chunkX);
             int dz = Math.abs(mp.chunkCoordZ - chunkZ);
             if (dx <= viewDist && dz <= viewDist) {
+                // The session is per player, so the packet has to be stamped per
+                // player as well; a shared packet would carry another player's.
+                packet.setEpoch(ExtendedPacketQueue.sessionEpoch(mp));
                 ExtendedPacketQueue.sendTileEntity(mp, packet);
             }
         }
@@ -398,9 +401,6 @@ public abstract class MixinWorld implements ExtendedWorldLight {
         SPacketBlockChange blockPacket = new SPacketBlockChange(self, pos);
         TileEntity tileEntity = newState.getBlock().hasTileEntity(newState) ? self.getTileEntity(pos) : null;
         NBTTagCompound updateTag = tileEntity != null ? tileEntity.getUpdateTag() : null;
-        SPacketExtendedTileEntity tilePacket = updateTag != null
-                ? new SPacketExtendedTileEntity(pos, updateTag)
-                : null;
 
         for (EntityPlayer player : ws.playerEntities) {
             if (!(player instanceof EntityPlayerMP)) {
@@ -411,8 +411,10 @@ public abstract class MixinWorld implements ExtendedWorldLight {
             int dz = Math.abs(mp.chunkCoordZ - chunkZ);
             if (dx <= viewDist && dz <= viewDist) {
                 ExtendedPacketQueue.sendBlockChange(mp, blockPacket);
-                if (tilePacket != null) {
-                    ExtendedPacketQueue.sendTileEntity(mp, tilePacket);
+                if (updateTag != null) {
+                    ExtendedPacketQueue.sendTileEntity(mp,
+                            new SPacketExtendedTileEntity(pos, updateTag,
+                                    ExtendedPacketQueue.sessionEpoch(mp)));
                 }
             }
         }

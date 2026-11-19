@@ -5,7 +5,6 @@ import com.vbuser.inf.HeightConstants;
 import com.vbuser.inf.chunk.ColumnManager;
 import com.vbuser.inf.chunk.ExtendedColumn;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
@@ -35,8 +34,38 @@ public final class CloudVolumeTracker {
     public static final int SECTION_SIZE = 16;
     public static final int SECTION_VOLUME = SECTION_SIZE * SECTION_SIZE * SECTION_SIZE;
 
+    /** Lossless three-dimensional key; unlike a packed long this cannot alias extreme Y. */
+    public static final class SectionKey {
+        public final int sx;
+        public final int sy;
+        public final int sz;
+
+        public SectionKey(int sx, int sy, int sz) {
+            this.sx = sx;
+            this.sy = sy;
+            this.sz = sz;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof SectionKey)) return false;
+            SectionKey that = (SectionKey) other;
+            return this.sx == that.sx && this.sy == that.sy && this.sz == that.sz;
+        }
+
+        @Override
+        public int hashCode() {
+            int result = this.sx;
+            result = 31 * result + this.sy;
+            result = 31 * result + this.sz;
+            return result;
+        }
+    }
+
     /** One 16x16x16 chunk section, in local coordinates. */
     public static final class Section {
+        public final SectionKey key;
         public final int sx;
         public final int sy;
         public final int sz;
@@ -44,6 +73,7 @@ public final class CloudVolumeTracker {
         public int nonZero;
 
         Section(int sx, int sy, int sz) {
+            this.key = new SectionKey(sx, sy, sz);
             this.sx = sx;
             this.sy = sy;
             this.sz = sz;
@@ -83,8 +113,8 @@ public final class CloudVolumeTracker {
     }
 
     private static final class DimensionData {
-        final Long2ObjectOpenHashMap<Section> sections = new Long2ObjectOpenHashMap<>();
-        final LongOpenHashSet dirty = new LongOpenHashSet();
+        final Map<SectionKey, Section> sections = new java.util.HashMap<>();
+        final java.util.Set<SectionKey> dirty = new java.util.LinkedHashSet<>();
         long totalDensity;
         int blockCount;
         /**
@@ -121,12 +151,31 @@ public final class CloudVolumeTracker {
     /** Chunk sections that still have to be read from a freshly arrived chunk. */
     private static final Long2ObjectOpenHashMap<PendingScan> PENDING = new Long2ObjectOpenHashMap<>();
 
+    /**
+     * Maximum chunk sections read in one {@link #processPendingScans} call. The
+     * per call deadline normally bites first; this only bounds how many cheap
+     * (empty storage) sections a burst can consume before yielding.
+     */
+    private static final int SECTIONS_PER_SCAN_CALL = 256;
+
+    /**
+     * A chunk whose cloud sections still have to be read.
+     *
+     * <p>The reading is incremental: {@link #mask} holds the vanilla sections
+     * that are left and {@link #extDirty} the extended sections that still have
+     * to be read, so the scan can yield between sections and be resumed on the
+     * next tick instead of blocking on a whole chunk.</p>
+     *
+     * <p>Extended sections are tracked individually because they are delivered
+     * by the infinite-height channel, which is a different (and slower, per
+     * player byte budget) path than the vanilla chunk packet: at the time the
+     * chunk data is applied they are usually not there yet.</p>
+     */
     private static final class PendingScan {
         final ChunkPos pos;
+        /** Vanilla section mask; a bit is cleared once its section was read. */
         int mask;
-        boolean full;
-        boolean ext;
-
+        java.util.Set<Integer> extDirty;
         PendingScan(ChunkPos pos) {
             this.pos = pos;
         }
@@ -139,20 +188,8 @@ public final class CloudVolumeTracker {
     // keys
     // ------------------------------------------------------------------
 
-    public static long sectionKey(int sx, int sy, int sz) {
-        return ((long) (sx & 0x1FFFFF) << 42) | ((long) (sy & 0x1FFFFF) << 21) | (sz & 0x1FFFFF);
-    }
-
-    public static int keyX(long key) {
-        return (int) (key >>> 42) << 11 >> 11;
-    }
-
-    public static int keyY(long key) {
-        return (int) (key >>> 21) << 11 >> 11;
-    }
-
-    public static int keyZ(long key) {
-        return (int) key << 11 >> 11;
+    public static SectionKey sectionKey(int sx, int sy, int sz) {
+        return new SectionKey(sx, sy, sz);
     }
 
     private static DimensionData data(int dimension) {
@@ -208,30 +245,30 @@ public final class CloudVolumeTracker {
     }
 
     @Nullable
-    public static Section getSection(int dimension, long key) {
+    public static Section getSection(int dimension, SectionKey key) {
         DimensionData data = DATA.get(dimension);
         return data == null ? null : data.sections.get(key);
     }
 
     /** Hands every live section key to {@code sink}. */
-    public static void collectSectionKeys(int dimension, LongConsumer sink) {
+    public static void collectSectionKeys(int dimension, SectionKeyConsumer sink) {
         DimensionData data = DATA.get(dimension);
         if (data == null) {
             return;
         }
-        for (long key : data.sections.keySet()) {
+        for (SectionKey key : data.sections.keySet()) {
             sink.accept(key);
         }
     }
 
     /** Moves the pending changed-section keys into {@code sink}. */
-    public static int drainDirtyKeys(int dimension, LongConsumer sink) {
+    public static int drainDirtyKeys(int dimension, SectionKeyConsumer sink) {
         DimensionData data = DATA.get(dimension);
         if (data == null || data.dirty.isEmpty()) {
             return 0;
         }
         int count = data.dirty.size();
-        for (long key : data.dirty) {
+        for (SectionKey key : data.dirty) {
             sink.accept(key);
         }
         data.dirty.clear();
@@ -244,8 +281,8 @@ public final class CloudVolumeTracker {
         return data == null ? 0 : data.dirty.size();
     }
 
-    public interface LongConsumer {
-        void accept(long value);
+    public interface SectionKeyConsumer {
+        void accept(SectionKey value);
     }
 
     // ------------------------------------------------------------------
@@ -262,7 +299,7 @@ public final class CloudVolumeTracker {
         int sx = x >> 4;
         int sy = y >> 4;
         int sz = z >> 4;
-        long key = sectionKey(sx, sy, sz);
+        SectionKey key = sectionKey(sx, sy, sz);
         DimensionData data = data(dimension);
         Section section = data.sections.get(key);
         if (section == null) {
@@ -327,21 +364,21 @@ public final class CloudVolumeTracker {
             PENDING.remove(ChunkPos.asLong(chunkPos.x, chunkPos.z));
             return;
         }
-        java.util.ArrayList<Long> remove = null;
+        java.util.ArrayList<SectionKey> remove = null;
         for (Section section : data.sections.values()) {
             if (section.sx == chunkPos.x && section.sz == chunkPos.z) {
                 if (remove == null) {
                     remove = new java.util.ArrayList<>();
                 }
-                remove.add(Long.valueOf(sectionKey(section.sx, section.sy, section.sz)));
+                remove.add(section.key);
             }
         }
         if (remove == null || remove.isEmpty()) {
             PENDING.remove(ChunkPos.asLong(chunkPos.x, chunkPos.z));
             return;
         }
-        for (Long key : remove) {
-            Section section = data.sections.remove(key.longValue());
+        for (SectionKey key : remove) {
+            Section section = data.sections.remove(key);
             if (section == null) {
                 continue;
             }
@@ -351,7 +388,7 @@ public final class CloudVolumeTracker {
                     data.blockCount--;
                 }
             }
-            data.dirty.add(key.longValue());
+            data.dirty.add(key);
         }
         if (data.blockCount < 0) {
             data.blockCount = 0;
@@ -411,45 +448,175 @@ public final class CloudVolumeTracker {
             PENDING.put(key, scan);
         }
         if (full) {
-            scan.full = true;
             scan.mask = 0xFFFF;
         } else {
             scan.mask |= sectionMask;
         }
-        if (HeightConstants.isExtendedWorld(world)) {
-            scan.ext = true;
+    }
+
+    /**
+     * Queues one extended section delivered by the infinite-height channel.
+     * The channel is independent from the vanilla chunk packet, so this is what
+     * makes cloud blocks above/below {@code 0..255} show up at all.
+     */
+    public static void onClientExtendedSectionData(World world, Chunk chunk, int sectionY) {
+        if (world == null || !world.isRemote || chunk == null) {
+            return;
+        }
+        long key = ChunkPos.asLong(chunk.x, chunk.z);
+        PendingScan scan = PENDING.get(key);
+        if (scan == null) {
+            scan = new PendingScan(new ChunkPos(chunk.x, chunk.z));
+            PENDING.put(key, scan);
+        }
+        if (scan.extDirty == null) {
+            scan.extDirty = new java.util.HashSet<>();
+        }
+        scan.extDirty.add(sectionY);
+    }
+
+    /**
+     * Replaces the extended part of a column after MODE_RESET/MODE_FINISH.
+     * Sections absent from the new snapshot must be removed from the tracker as
+     * well as from the chunk, otherwise their old density remains visible.
+     *
+     * <p>Only the extended sections are re-read. The resync does not resend the
+     * vanilla chunk data, so touching {@code mask} here would re-read all 16
+     * vanilla sections (65536 blocks) of the chunk for nothing.</p>
+     */
+    public static void onClientExtendedResync(World world, Chunk chunk) {
+        if (world == null || !world.isRemote || chunk == null) {
+            return;
+        }
+        int dimension = world.provider.getDimension();
+        DimensionData data = DATA.get(dimension);
+        if (data != null) {
+            java.util.ArrayList<SectionKey> remove = null;
+            for (Section section : data.sections.values()) {
+                if (section.sx == chunk.x && section.sz == chunk.z
+                        && (section.sy < 0 || section.sy >= 16)) {
+                    if (remove == null) {
+                        remove = new java.util.ArrayList<>();
+                    }
+                    remove.add(section.key);
+                }
+            }
+            if (remove != null) {
+                for (SectionKey key : remove) {
+                    Section section = data.sections.remove(key);
+                    if (section == null) {
+                        continue;
+                    }
+                    for (byte value : section.density) {
+                        if (value != 0) {
+                            data.totalDensity -= value & 0xFF;
+                            data.blockCount--;
+                        }
+                    }
+                    data.dirty.add(key);
+                }
+            }
+            if (data.blockCount <= 0) {
+                data.blockCount = 0;
+                data.totalDensity = 0;
+                data.reset();
+            }
+        }
+        // Re-read only the sections the new snapshot actually contains; the
+        // vanilla chunk data was not resent, so the mask stays untouched.
+        long key = ChunkPos.asLong(chunk.x, chunk.z);
+        PendingScan scan = PENDING.get(key);
+        if (scan == null) {
+            scan = new PendingScan(new ChunkPos(chunk.x, chunk.z));
+            PENDING.put(key, scan);
+        }
+        if (scan.extDirty == null) {
+            scan.extDirty = new java.util.HashSet<>();
+        }
+        ExtendedColumn column = ColumnManager.getIfPresent(chunk);
+        if (column != null) {
+            for (Integer sectionY : column.getSections().keySet()) {
+                // Vanilla sections are read from the chunk storage, never from
+                // the extended column; mixing them in would clear valid data.
+                if (sectionY != null && !HeightConstants.isVanillaY(sectionY << 4)) {
+                    scan.extDirty.add(sectionY);
+                }
+            }
         }
     }
 
-    /** Reads at most {@code budget} milliseconds worth of queued chunk data. */
+    /**
+     * Reads at most {@code budgetNanos} worth of queued chunk data.
+     *
+     * <p>The scan keeps a per section cursor and yields as soon as the deadline
+     * or the per call section cap is reached, so a freshly arrived chunk is
+     * never read as one unbounded unit. A partially read chunk stays queued and
+     * is resumed on the next call; the public behaviour is unchanged otherwise.</p>
+     */
     public static void processPendingScans(World world, long budgetNanos) {
         if (PENDING.isEmpty() || world == null) {
             return;
         }
         long deadline = System.nanoTime() + budgetNanos;
+        int dimension = world.provider.getDimension();
+        int remaining = SECTIONS_PER_SCAN_CALL;
         it.unimi.dsi.fastutil.objects.ObjectIterator<PendingScan> iterator = PENDING.values().iterator();
         while (iterator.hasNext()) {
             PendingScan scan = iterator.next();
-            iterator.remove();
             Chunk chunk = world.getChunkProvider().getLoadedChunk(scan.pos.x, scan.pos.z);
             if (chunk == null) {
+                iterator.remove();
                 continue;
             }
-            int dimension = world.provider.getDimension();
-            int mask = scan.full ? 0xFFFF : scan.mask;
-            for (int sy = 0; sy < 16; sy++) {
-                if ((mask & (1 << sy)) == 0) {
-                    continue;
-                }
-                scanSection(dimension, chunk, sy, null);
+            remaining -= scanChunkSections(dimension, chunk, scan, deadline, remaining);
+            if (isScanComplete(scan)) {
+                iterator.remove();
             }
-            if (scan.ext && scan.full) {
-                scanExtendedSections(world, dimension, chunk);
-            }
-            if (System.nanoTime() >= deadline) {
+            if (remaining <= 0 || System.nanoTime() >= deadline) {
                 break;
             }
         }
+    }
+
+    /** @return true when every requested section of this chunk has been read. */
+    private static boolean isScanComplete(PendingScan scan) {
+        return scan.mask == 0 && (scan.extDirty == null || scan.extDirty.isEmpty());
+    }
+
+    /**
+     * Reads sections of one chunk until the deadline, the per call cap or the
+     * end of this chunk is reached.
+     *
+     * @return the number of sections actually read
+     */
+    private static int scanChunkSections(int dimension, Chunk chunk, PendingScan scan,
+                                         long deadline, int maxSections) {
+        int processed = 0;
+        while (scan.mask != 0 && processed < maxSections) {
+            int sy = Integer.numberOfTrailingZeros(scan.mask);
+            scanSection(dimension, chunk, sy, null);
+            scan.mask &= ~(1 << sy);
+            processed++;
+            if (System.nanoTime() >= deadline) {
+                return processed;
+            }
+        }
+        if (scan.mask != 0) {
+            return processed;
+        }
+        if (scan.extDirty != null && !scan.extDirty.isEmpty()) {
+            java.util.Iterator<Integer> dirty = scan.extDirty.iterator();
+            while (dirty.hasNext() && processed < maxSections) {
+                int sectionY = dirty.next();
+                dirty.remove();
+                scanExtendedSection(dimension, chunk, sectionY);
+                processed++;
+                if (System.nanoTime() >= deadline) {
+                    return processed;
+                }
+            }
+        }
+        return processed;
     }
 
     private static void scanSection(int dimension, Chunk chunk, int sy, @Nullable ExtendedBlockStorage direct) {
@@ -487,26 +654,15 @@ public final class CloudVolumeTracker {
         applySection(dimension, chunk.x, sy, chunk.z, found, nonZero);
     }
 
-    private static void scanExtendedSections(World world, int dimension, Chunk chunk) {
+    /** Re-reads one extended section of the column. */
+    private static void scanExtendedSection(int dimension, Chunk chunk, int sy) {
         ExtendedColumn column = ColumnManager.getIfPresent(chunk);
-        if (column == null) {
+        ExtendedBlockStorage storage = column == null ? null : column.getSections().get(sy);
+        if (storage == null) {
+            clearSection(dimension, chunk.x, sy, chunk.z);
             return;
         }
-        Map<Integer, ExtendedBlockStorage> sections = column.getSections();
-        if (sections == null || sections.isEmpty()) {
-            return;
-        }
-        for (Map.Entry<Integer, ExtendedBlockStorage> entry : sections.entrySet()) {
-            Integer sy = entry.getKey();
-            ExtendedBlockStorage storage = entry.getValue();
-            if (sy == null || storage == null) {
-                continue;
-            }
-            if (HeightConstants.isVanillaY(sy << 4)) {
-                continue;
-            }
-            scanSection(dimension, chunk, sy, storage);
-        }
+        scanSection(dimension, chunk, sy, storage);
     }
 
     private static void clearSection(int dimension, int cx, int sy, int cz) {
@@ -514,7 +670,7 @@ public final class CloudVolumeTracker {
         if (data == null) {
             return;
         }
-        long key = sectionKey(cx, sy, cz);
+        SectionKey key = sectionKey(cx, sy, cz);
         Section old = data.sections.remove(key);
         if (old == null) {
             return;
@@ -538,7 +694,7 @@ public final class CloudVolumeTracker {
     private static void applySection(int dimension, int cx, int sy, int cz,
                                      @Nullable byte[] found, int nonZero) {
         DimensionData data = data(dimension);
-        long key = sectionKey(cx, sy, cz);
+        SectionKey key = sectionKey(cx, sy, cz);
         Section section = data.sections.get(key);
         if (found == null || nonZero == 0) {
             if (section != null) {
@@ -599,9 +755,16 @@ public final class CloudVolumeTracker {
                 }
                 long key = ChunkPos.asLong(cx, cz);
                 PendingScan scan = new PendingScan(new ChunkPos(cx, cz));
-                scan.full = true;
                 scan.mask = 0xFFFF;
-                scan.ext = HeightConstants.isExtendedWorld(world);
+                ExtendedColumn column = ColumnManager.getIfPresent(chunk);
+                if (column != null && HeightConstants.isExtendedWorld(world)) {
+                    scan.extDirty = new java.util.HashSet<>();
+                    for (Integer sectionY : column.getSections().keySet()) {
+                        if (sectionY != null && !HeightConstants.isVanillaY(sectionY << 4)) {
+                            scan.extDirty.add(sectionY);
+                        }
+                    }
+                }
                 PENDING.put(key, scan);
             }
         }

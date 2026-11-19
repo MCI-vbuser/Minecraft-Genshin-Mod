@@ -1,6 +1,7 @@
 package com.vbuser.genshin.tool.cg.decoder;
 
 import com.vbuser.genshin.tool.cg.CGFileManager;
+import com.vbuser.genshin.tool.cg.CGProtocol;
 import com.vbuser.genshin.tool.cg.CgListener;
 import com.vbuser.genshin.tool.cg.GuiVideoOverlay;
 import com.vbuser.genshin.tool.cg.network.CGFileClientCache;
@@ -13,6 +14,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /**
  * Client side cg state machine: download, playback, overlay and listeners.
@@ -21,12 +25,25 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * when needed. The current video is exposed both as the built-in full screen overlay and as
  * a raw GL texture ({@link #getTextureId()}) so a mod can draw it inside its own GUI by
  * calling {@link #setAutoOverlay(boolean) setAutoOverlay(false)}.</p>
+ *
+ * <p>Decoders are opened on a background thread. Each playback attempt gets a session id;
+ * "started", "ended" and "failed" are only delivered while that session is still the active
+ * one, so opening a Windows decoder can never block the client thread and a stale decoder
+ * can neither fail nor end the video that replaced it.</p>
  */
 @SideOnly(Side.CLIENT)
 public class VideoPlaybackManager {
 
     private static final Logger LOGGER = LogManager.getLogger("VideoPlayback");
     private static final VideoPlaybackManager INSTANCE = new VideoPlaybackManager();
+    /** How long a decoder may take to become ready before the attempt fails. */
+    private static final long DECODER_OPEN_TIMEOUT_MS = 15_000L;
+
+    private static final ExecutorService DECODER_OPEN = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "CGDecoderOpen");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private IVideoFrameProvider currentPlayer;
     private VideoTexture currentTexture;
@@ -34,6 +51,10 @@ public class VideoPlaybackManager {
     private GuiVideoOverlay overlayGui;
     private String currentName;
     private boolean autoOverlay = true;
+
+    /** Incremented for every playback attempt; stale callbacks compare against it. */
+    private long sessionCounter;
+    private volatile long activeSession;
 
     private final CopyOnWriteArrayList<CgListener> listeners = new CopyOnWriteArrayList<>();
 
@@ -66,6 +87,17 @@ public class VideoPlaybackManager {
 
     /** Plays a cg for the local player, downloading it first when necessary. */
     public void playLocal(String fileName) {
+        playLocal(fileName, CGProtocol.VERSION_LOCAL);
+    }
+
+    /**
+     * Plays a cg for the local player.
+     *
+     * @param version content version announced by the server; an existing local file is
+     *                only reused when it matches. {@link CGProtocol#VERSION_LOCAL} keeps
+     *                hand-installed resources playable.
+     */
+    public void playLocal(String fileName, String version) {
         runOnClient(() -> {
             try {
                 stopVideoNow();
@@ -74,11 +106,11 @@ public class VideoPlaybackManager {
                     return;
                 }
                 currentName = fileName;
-                if (CGFileManager.exists(fileName)) {
+                if (CGFileClientCache.isCached(fileName, version)) {
                     startLocalPlayback(fileName);
                 } else {
                     fireLoading(fileName, 0f);
-                    CGFileClientCache.request(fileName, true);
+                    CGFileClientCache.request(fileName, version, true);
                 }
             } catch (Throwable t) {
                 LOGGER.error("[VideoPlayback] playLocal({}) failed", fileName, t);
@@ -93,6 +125,11 @@ public class VideoPlaybackManager {
         playLocal(fileName);
     }
 
+    /** Plays a cg announced by the server together with its content version. */
+    public void playVideo(String fileName, String version) {
+        playLocal(fileName, version);
+    }
+
     /** Downloads a cg without playing it. */
     public void prefetch(String fileName) {
         runOnClient(() -> {
@@ -100,51 +137,52 @@ public class VideoPlaybackManager {
                 fireFail(fileName, "illegal cg file name");
                 return;
             }
-            if (CGFileManager.exists(fileName)) {
+            if (CGFileClientCache.isCached(fileName, CGProtocol.VERSION_LOCAL)) {
                 fireReady(fileName);
                 return;
             }
             fireLoading(fileName, 0f);
-            CGFileClientCache.request(fileName, false);
+            CGFileClientCache.request(fileName, CGProtocol.VERSION_LOCAL, false);
         });
     }
 
     private void startLocalPlayback(String fileName) {
+        final long session = beginSession();
+        File file;
         try {
-            File file;
-            try {
-                file = CGFileManager.getFile(fileName);
-            } catch (IllegalArgumentException e) {
-                fireFail(fileName, "illegal cg file name");
-                return;
-            }
-            if (!file.isFile()) {
-                fireFail(fileName, "file not found: " + file.getAbsolutePath());
-                return;
-            }
+            file = CGFileManager.getFile(fileName);
+        } catch (IllegalArgumentException e) {
+            failSession(fileName, "illegal cg file name");
+            return;
+        }
+        if (!file.isFile()) {
+            failSession(fileName, "file not found: " + file.getAbsolutePath());
+            return;
+        }
+        try {
             if (autoOverlay && overlayGui == null) {
                 GuiScreen previous = Minecraft.getMinecraft().currentScreen;
                 overlayGui = new GuiVideoOverlay(previous);
                 Minecraft.getMinecraft().displayGuiScreen(overlayGui);
             }
-            currentPlayer = createPlayer(file.getAbsolutePath());
-            textureReady = false;
-            fireStart(fileName);
         } catch (Throwable t) {
-            // Never let a decoder problem escape into the client tick.
-            LOGGER.error("[VideoPlayback] Could not start playback of {}", fileName, t);
+            LOGGER.error("[VideoPlayback] Could not open the cg overlay", t);
             stopVideoNow();
-            fireFail(fileName, "could not start playback: " + t);
+            fireFail(fileName, "could not open the cg overlay: " + t);
+            return;
+        }
+        final String absolutePath = file.getAbsolutePath();
+        try {
+            DECODER_OPEN.execute(() -> openDecoder(session, fileName, absolutePath));
+        } catch (Throwable t) {
+            LOGGER.error("[VideoPlayback] Could not schedule the decoder for {}", fileName, t);
+            stopVideoNow();
+            fireFail(fileName, "could not start the video decoder: " + t);
         }
     }
 
-    /**
-     * Picks the decoder for this platform.
-     *
-     * <p>On Windows Media Foundation is preferred because JavaFX's Windows media backend
-     * (GStreamer + DirectShow) fails with {@code ERROR_MEDIA_INVALID} on some Windows/driver
-     * combinations. Everywhere else, or when MF cannot open the file, JavaFX is used.</p>
-     */
+    // ------------------------------------------------------------- decoder opening
+
     private boolean environmentLogged;
 
     private void logEnvironmentOnce() {
@@ -157,30 +195,117 @@ public class VideoPlaybackManager {
                 MFVideoPlayer.isSupported(), FXVideoPlayer.isInitialized());
     }
 
-    private IVideoFrameProvider createPlayer(String absolutePath) {
+    /**
+     * Opens the decoder off the client thread.
+     *
+     * <p>On Windows Media Foundation is preferred because JavaFX's Windows media backend
+     * (GStreamer + DirectShow) fails with {@code ERROR_MEDIA_INVALID} on some Windows/driver
+     * combinations. Everywhere else, or when MF cannot open the file, JavaFX is used.</p>
+     */
+    private void openDecoder(long session, String fileName, String absolutePath) {
         logEnvironmentOnce();
-        if (MFVideoPlayer.isSupported()) {
-            VideoPlaybackManager self = this;
-            MFVideoPlayer mf = new MFVideoPlayer(absolutePath,
-                    self::onPlaybackEnded,
-                    self::onPlaybackFailed);
-            try {
+        IVideoFrameProvider player = null;
+        String failure = null;
+        try {
+            if (session != activeSession) {
+                return; // the video was stopped, or replaced, before the decoder opened
+            }
+            if (MFVideoPlayer.isSupported()) {
+                MFVideoPlayer mf = new MFVideoPlayer(absolutePath,
+                        endCallback(session), failureCallback(session));
                 mf.start();
-                LOGGER.info("[VideoPlayback] Decoder: Media Foundation");
-                return mf;
-            } catch (Throwable t) {
-                LOGGER.warn("[VideoPlayback] Media Foundation could not play this file, "
-                        + "falling back to JavaFX", t);
-                try {
+                if (mf.awaitReady(DECODER_OPEN_TIMEOUT_MS)) {
+                    player = mf;
+                    LOGGER.info("[VideoPlayback] Decoder: Media Foundation");
+                } else {
+                    failure = mf.getOpenFailure();
+                    LOGGER.warn("[VideoPlayback] Media Foundation could not play this file ({}), "
+                            + "falling back to JavaFX", failure);
                     mf.stop();
+                }
+            }
+            if (player == null && session != activeSession) {
+                // Do not spend another open timeout on a playback that was already replaced.
+                return;
+            }
+            if (player == null) {
+                FXVideoPlayer fx = new FXVideoPlayer(absolutePath,
+                        endCallback(session), failureCallback(session));
+                fx.start();
+                if (fx.awaitReady(DECODER_OPEN_TIMEOUT_MS)) {
+                    player = fx;
+                    LOGGER.info("[VideoPlayback] Decoder: JavaFX");
+                } else {
+                    failure = fx.getOpenFailure();
+                    fx.stop();
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.error("[VideoPlayback] Could not open a decoder for {}", absolutePath, t);
+            failure = "could not start playback: " + t;
+            if (player != null) {
+                try {
+                    player.stop();
                 } catch (Throwable ignored) {
                 }
             }
+            player = null;
         }
-        FXVideoPlayer fx = new FXVideoPlayer(absolutePath);
-        fx.start();
-        LOGGER.info("[VideoPlayback] Decoder: JavaFX");
-        return fx;
+        final IVideoFrameProvider opened = player;
+        final String reason = failure;
+        runOnClient(() -> onDecoderOpened(session, fileName, opened, reason));
+    }
+
+    /** Runs on the client thread once the decoder for {@code session} settled. */
+    private void onDecoderOpened(long session, String fileName,
+                                 IVideoFrameProvider player, String failure) {
+        if (session != activeSession) {
+            // A newer playback started (or the video was stopped) meanwhile.
+            if (player != null) {
+                try {
+                    player.stop();
+                } catch (Throwable ignored) {
+                }
+            }
+            return;
+        }
+        if (player == null || player.getWidth() <= 0 || player.getHeight() <= 0) {
+            if (player != null) {
+                try {
+                    player.stop();
+                } catch (Throwable ignored) {
+                }
+            }
+            stopVideoNow();
+            fireFail(fileName, failure == null || failure.isEmpty()
+                    ? "the video decoder could not start" : failure);
+            return;
+        }
+        currentPlayer = player;
+        textureReady = false;
+        fireStart(fileName);
+    }
+
+    private Runnable endCallback(long session) {
+        return () -> runOnClient(() -> {
+            if (session != activeSession) {
+                return; // stale decoder from a previous playback
+            }
+            String finished = currentName;
+            stopVideoNow();
+            fireEnd(finished);
+        });
+    }
+
+    private Consumer<String> failureCallback(long session) {
+        return reason -> runOnClient(() -> {
+            if (session != activeSession) {
+                return; // stale decoder from a previous playback
+            }
+            String failed = currentName;
+            stopVideoNow();
+            fireFail(failed, reason);
+        });
     }
 
     // ------------------------------------------------------------- controls
@@ -190,6 +315,8 @@ public class VideoPlaybackManager {
     }
 
     private void stopVideoNow() {
+        // Invalidate pending decoder opens and every callback of the previous session.
+        activeSession = ++sessionCounter;
         currentName = null;
         stopPlayerOnlyNow();
         if (overlayGui != null) {
@@ -215,6 +342,7 @@ public class VideoPlaybackManager {
     public void onOverlayClosed() {
         runOnClient(() -> {
             overlayGui = null;
+            activeSession = ++sessionCounter;
             stopPlayerOnlyNow();
             currentName = null;
         });
@@ -237,6 +365,16 @@ public class VideoPlaybackManager {
     }
 
     // ------------------------------------------------------------- state
+
+    private long beginSession() {
+        activeSession = ++sessionCounter;
+        return activeSession;
+    }
+
+    private void failSession(String fileName, String reason) {
+        stopVideoNow();
+        fireFail(fileName, reason);
+    }
 
     public boolean isVideoActive() {
         return currentPlayer != null && currentPlayer.isPlaying();
@@ -298,24 +436,6 @@ public class VideoPlaybackManager {
     }
 
     // ------------------------------------------------------------- callbacks
-
-    /** Called by the decoder when the video reached its end. */
-    public void onPlaybackEnded() {
-        runOnClient(() -> {
-            String finished = currentName;
-            stopVideoNow();
-            fireEnd(finished);
-        });
-    }
-
-    /** Called by the decoder when decoding could not start. */
-    public void onPlaybackFailed(String reason) {
-        runOnClient(() -> {
-            String failed = currentName;
-            stopVideoNow();
-            fireFail(failed, reason);
-        });
-    }
 
     /** Called by the download cache on the client thread. */
     public void onDownloadProgress(String fileName, float progress) {

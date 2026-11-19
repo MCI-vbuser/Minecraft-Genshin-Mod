@@ -161,7 +161,9 @@ public class NetworkManager {
         @SubscribeEvent
         public void onClientDisconnected(FMLNetworkEvent.ClientDisconnectionFromServerEvent event) {
             if (clientQueueManager != null) {
-                clientQueueManager.flushAll();
+                // Flush what is left and drop the connection queue; the next
+                // connection gets a fresh one.
+                clientQueueManager.remove(CLIENT_TARGET);
             }
         }
     }
